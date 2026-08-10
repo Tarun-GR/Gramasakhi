@@ -13,7 +13,7 @@ export const OTPVerification = () => {
   const [verifying, setVerifying] = useState(false);
   const [otpError, setOtpError] = useState(null);
   const [success, setSuccess] = useState(false);
-  const { loginWithOtp, selectPatient, showToast } = useAuth();
+  const { loginWithOtp, showToast } = useAuth();
   const navigate = useNavigate();
 
   // Timer countdown hook
@@ -41,24 +41,22 @@ export const OTPVerification = () => {
     setVerifying(true);
     setOtpError(null);
     try {
-      // Simulate backend verify
-      const profiles = await loginWithOtp(phone, otp);
+      const result = await loginWithOtp(phone, otp);
+      if (result?.needs_registration) {
+        localStorage.setItem("tempPhone", phone);
+        navigate(`/register?phone=${phone}`);
+        return;
+      }
       setSuccess(true);
       showToast("success", "Verification completed successfully!");
-      
-      // Delay redirection for success animation
+
       setTimeout(() => {
-        if (profiles.length === 1) {
-          selectPatient(profiles[0]);
-          navigate("/dashboard");
-        } else if (profiles.length > 1) {
-          navigate("/family-selection");
-        } else {
-          navigate("/dashboard");
-        }
-      }, 1500);
+        navigate("/");
+      }, 1000);
     } catch (err) {
-      setOtpError({ message: err.response?.data?.message || "Invalid OTP code." });
+      setOtpError({
+        message: err.response?.data?.detail || err.response?.data?.message || "Invalid OTP code.",
+      });
     } finally {
       setVerifying(false);
     }

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { Activity, Mail, Lock, Loader2 } from "lucide-react";
+import { Landmark, Mail, Lock, Loader2 } from "lucide-react";
 import api, { apiEvents } from "../services/api";
 
 export default function Login() {
@@ -50,11 +50,11 @@ export default function Login() {
         {/* Branding header */}
         <div className="text-center space-y-3 mb-8">
           <div className="w-12 h-12 rounded-xl bg-primary/15 border border-primary/30 flex items-center justify-center text-primary mx-auto">
-            <Activity className="w-7 h-7 animate-pulse-subtle" />
+            <Landmark className="w-7 h-7" />
           </div>
           <div>
-            <h1 className="text-2xl font-black font-display text-white tracking-tight leading-none">Sahyog 1.0</h1>
-            <span className="text-xs text-muted-foreground font-semibold mt-1 inline-block uppercase tracking-wider">Super Admin Portal</span>
+            <h1 className="text-2xl font-black font-display text-white tracking-tight leading-none">GramSakhi</h1>
+            <span className="text-xs text-muted-foreground font-semibold mt-1 inline-block uppercase tracking-wider">Admin Portal</span>
           </div>
         </div>
 

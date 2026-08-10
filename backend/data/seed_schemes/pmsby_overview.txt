@@ -1,0 +1,26 @@
+Pradhan Mantri Suraksha Bima Yojana (PMSBY) - Scheme Overview (Central Government)
+
+Scheme name: Pradhan Mantri Suraksha Bima Yojana (PMSBY)
+Ministry / Department: Department of Financial Services, Ministry of Finance, Government of India
+Category: Accident insurance / social security
+
+Benefits / cover amount:
+- Accidental death: Rs 2 lakh (two lakh rupees) sum insured
+- Permanent total disability due to accident: Rs 2 lakh
+- Permanent partial disability due to accident: Rs 1 lakh (as per scheme schedule)
+
+Premium:
+- Annual premium is Rs 20 per member per year (subject to official notifications)
+- Premium is typically auto-debited from the linked bank account
+
+Eligibility (summary):
+- Indian citizens in the eligible age band as notified (commonly 18 to 70 years)
+- Must have a savings bank account and give consent for auto-debit
+- One cover per eligible member through a participating bank
+
+Enrolment / claim:
+- Enrolment is through participating banks
+- Claims require bank facilitation and prescribed documents such as claim form, KYC, and accident/death proof as applicable
+
+Source note: Official Central Government social security scheme (PMSBY) under the Jan Suraksha umbrella administered with Department of Financial Services.
+Last curated for GramSakhi grounding: operational facts commonly published on official DFS / Jan Suraksha materials.

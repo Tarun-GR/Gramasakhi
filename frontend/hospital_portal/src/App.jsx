@@ -1,105 +1,37 @@
 import React from "react";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { AuthProvider, useAuth } from "./context/AuthContext";
-import GlobalToast from "./components/GlobalToast";
-import HospitalLayout from "./components/HospitalLayout";
+import { Landmark } from "lucide-react";
 
-// Employee Auth Pages
-import Login from "./pages/auth/Login";
-import ChangePassword from "./pages/auth/ChangePassword";
-
-// Admin Subpages & Layout
-import HospitalAdminLayout from "./components/HospitalAdminLayout";
-import AdminDashboard from "./pages/admin/AdminDashboard";
-import DoctorManagement from "./pages/admin/DoctorManagement";
-import StaffManagement from "./pages/admin/StaffManagement";
-import DepartmentManagement from "./pages/admin/DepartmentManagement";
-
-// Doctor Pages
-import DoctorDashboard from "./pages/doctor/DoctorDashboard";
-import PatientTimelinePage from "./pages/doctor/PatientTimelinePage";
-
-// Support Staff Pages
-import StaffDashboard from "./pages/support/StaffDashboard";
-import ClinicalTriage from "./pages/support/ClinicalTriage";
-
-// Guards
-const DoctorRoute = ({ children }) => {
-  const { employee } = useAuth();
-  if (!employee) return <Navigate to="/employee-login" replace />;
-  if (employee.role !== "DOCTOR") return <Navigate to="/employee-login" replace />;
-  return <HospitalLayout>{children}</HospitalLayout>;
-};
-
-const SupportRoute = ({ children }) => {
-  const { employee } = useAuth();
-  if (!employee) return <Navigate to="/employee-login" replace />;
-  if (employee.role !== "SUPPORT_STAFF") return <Navigate to="/employee-login" replace />;
-  return <HospitalLayout>{children}</HospitalLayout>;
-};
-
-const App = () => {
+/**
+ * Hospital portal healthcare UI was removed in Phase 1 (Sahyog → GramSakhi).
+ * Clinical modules are preserved under backend/app/_legacy_healthcare for review only.
+ */
+export default function App() {
   return (
-    <AuthProvider>
-      <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Navigate to="/employee-login" replace />} />
-          <Route path="/employee-login" element={<Login />} />
-          <Route path="/change-password" element={<ChangePassword />} />
-
-          {/* Nested Hospital Admin routes */}
-          <Route path="/hospital/admin" element={<HospitalAdminLayout />}>
-            <Route index element={<Navigate to="dashboard" replace />} />
-            <Route path="dashboard" element={<AdminDashboard />} />
-            <Route path="doctors" element={<DoctorManagement />} />
-            <Route path="staff" element={<StaffManagement />} />
-            <Route path="departments" element={<DepartmentManagement />} />
-          </Route>
-
-          {/* Doctor routes */}
-          <Route
-            path="/doctor/dashboard"
-            element={
-              <DoctorRoute>
-                <DoctorDashboard />
-              </DoctorRoute>
-            }
-          />
-          <Route
-            path="/doctor/timeline"
-            element={
-              <DoctorRoute>
-                <PatientTimelinePage />
-              </DoctorRoute>
-            }
-          />
-
-
-          {/* Support Staff routes */}
-          <Route
-            path="/support/dashboard"
-            element={
-              <SupportRoute>
-                <StaffDashboard />
-              </SupportRoute>
-            }
-          />
-          <Route
-            path="/support/encounter"
-            element={
-              <SupportRoute>
-                <ClinicalTriage />
-              </SupportRoute>
-            }
-          />
-
-          {/* Wildcard redirect */}
-          <Route path="*" element={<Navigate to="/employee-login" replace />} />
-        </Routes>
-        <GlobalToast />
-      </BrowserRouter>
-    </AuthProvider>
+    <div className="min-h-screen flex items-center justify-center bg-slate-50 text-slate-800 p-6">
+      <div className="max-w-md text-center space-y-4">
+        <div className="w-12 h-12 mx-auto rounded-xl bg-emerald-700 text-white flex items-center justify-center">
+          <Landmark className="w-6 h-6" />
+        </div>
+        <h1 className="text-2xl font-bold">GramSakhi</h1>
+        <p className="text-sm text-slate-600 leading-relaxed">
+          The hospital / doctor clinical portal from Sahyog has been retired. Use the citizen
+          Ask interface or the GramSakhi Admin knowledge-base portal instead.
+        </p>
+        <div className="flex flex-col sm:flex-row gap-2 justify-center pt-2">
+          <a
+            className="px-4 py-2 rounded-lg bg-emerald-700 text-white text-sm font-semibold"
+            href="http://localhost:5176/"
+          >
+            Citizen Ask
+          </a>
+          <a
+            className="px-4 py-2 rounded-lg border border-slate-300 text-sm font-semibold"
+            href="http://localhost:5174/login"
+          >
+            Admin Portal
+          </a>
+        </div>
+      </div>
+    </div>
   );
-};
-
-export default App;
+}

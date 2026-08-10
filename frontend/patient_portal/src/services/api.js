@@ -18,8 +18,9 @@ export const apiEvents = {
 };
 
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || "http://localhost:8000/api",
-  timeout: 10000,
+  // Prefer 127.0.0.1 to match Vite host and avoid localhost↔IPv6 mismatches on Windows
+  baseURL: import.meta.env.VITE_API_URL || "http://127.0.0.1:8000/api",
+  timeout: 0, // never abort globally; long chat/live-gov calls set their own timeout
   headers: {
     "Content-Type": "application/json",
   }
@@ -53,8 +54,14 @@ api.interceptors.response.use(
   },
   (error) => {
     apiEvents.emit("loading", false);
-    const message = error.response?.data?.detail || error.response?.data?.message || error.message || "An unexpected error occurred.";
-    apiEvents.emit("toast", { type: "error", message });
+    if (!error?.config?.skipErrorToast) {
+      const raw = error.response?.data?.detail || error.response?.data?.message || error.message;
+      const message =
+        typeof raw === "string"
+          ? raw
+          : error.message || "An unexpected error occurred.";
+      apiEvents.emit("toast", { type: "error", message });
+    }
     return Promise.reject(error);
   }
 );

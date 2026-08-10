@@ -1,0 +1,239 @@
+{
+  "version": 1,
+  "description": "Curated Karnataka + Central (all-India) scheme sources for GramSakhi web ingest. Prefer static ministry pages and PDFs; some SPA pages may yield little text.",
+  "schemes": [
+    {
+      "id": "pm-kisan",
+      "name": "PM-Kisan Samman Nidhi",
+      "scope": "central",
+      "state": "India",
+      "ministry": "Ministry of Agriculture & Farmers Welfare",
+      "keywords": ["pm-kisan", "pmkisan", "kisan samman", "farmer income", "pm kisan", "samman nidhi"],
+      "urls": [
+        "https://pmkisan.gov.in/",
+        "https://www.myscheme.gov.in/schemes/pm-kisan"
+      ]
+    },
+    {
+      "id": "pmfby",
+      "name": "Pradhan Mantri Fasal Bima Yojana",
+      "scope": "central",
+      "state": "India",
+      "ministry": "Ministry of Agriculture & Farmers Welfare",
+      "keywords": ["pmfby", "fasal bima", "crop insurance", "crop bima"],
+      "urls": [
+        "https://www.pmfby.gov.in/pdf/Revised_Operational_Guidelines.pdf",
+        "https://www.pmfby.gov.in/",
+        "https://www.myscheme.gov.in/schemes/pmfby"
+      ]
+    },
+    {
+      "id": "ayushman-bharat",
+      "name": "Ayushman Bharat PM-JAY",
+      "scope": "central",
+      "state": "India",
+      "ministry": "National Health Authority",
+      "keywords": ["ayushman", "pmjay", "pm-jay", "health insurance", "abha", "ayushman bharat"],
+      "urls": [
+        "https://nha.gov.in/",
+        "https://www.myscheme.gov.in/schemes/ab-pmjay"
+      ]
+    },
+    {
+      "id": "mgnrega",
+      "name": "MGNREGA",
+      "scope": "central",
+      "state": "India",
+      "ministry": "Ministry of Rural Development",
+      "keywords": ["mgnrega", "nrega", "rural employment", "100 days", "job card"],
+      "urls": [
+        "https://nrega.nic.in/",
+        "https://www.myscheme.gov.in/schemes/mgnrega",
+        "https://rural.nic.in/"
+      ]
+    },
+    {
+      "id": "pmjjby",
+      "name": "Pradhan Mantri Jeevan Jyoti Bima Yojana",
+      "scope": "central",
+      "state": "India",
+      "ministry": "Department of Financial Services",
+      "keywords": ["pmjjby", "jeevan jyoti", "life insurance", "bima yojana"],
+      "urls": [
+        "https://financialservices.gov.in/",
+        "https://www.myscheme.gov.in/schemes/pmjjby"
+      ]
+    },
+    {
+      "id": "pmsby",
+      "name": "Pradhan Mantri Suraksha Bima Yojana",
+      "scope": "central",
+      "state": "India",
+      "ministry": "Department of Financial Services",
+      "keywords": ["pmsby", "suraksha bima", "accident insurance"],
+      "urls": [
+        "https://financialservices.gov.in/",
+        "https://www.myscheme.gov.in/schemes/pmsby"
+      ]
+    },
+    {
+      "id": "ujjwala",
+      "name": "Pradhan Mantri Ujjwala Yojana",
+      "scope": "central",
+      "state": "India",
+      "ministry": "Ministry of Petroleum & Natural Gas",
+      "keywords": ["ujjwala", "lpg", "cooking gas", "pmuy"],
+      "urls": [
+        "https://www.india.gov.in/",
+        "https://www.myscheme.gov.in/schemes/pmuy"
+      ]
+    },
+    {
+      "id": "jal-jeevan",
+      "name": "Jal Jeevan Mission",
+      "scope": "central",
+      "state": "India",
+      "ministry": "Ministry of Jal Shakti",
+      "keywords": ["jal jeevan", "tap water", "har ghar jal", "jjm"],
+      "urls": [
+        "https://www.india.gov.in/",
+        "https://www.myscheme.gov.in/schemes/jjm"
+      ]
+    },
+    {
+      "id": "pmay",
+      "name": "Pradhan Mantri Awas Yojana",
+      "scope": "central",
+      "state": "India",
+      "ministry": "Ministry of Housing and Urban Affairs",
+      "keywords": ["pmay", "awas yojana", "housing", "ghar"],
+      "urls": [
+        "https://www.india.gov.in/",
+        "https://www.myscheme.gov.in/schemes/pmay-u"
+      ]
+    },
+    {
+      "id": "national-portal",
+      "name": "National Portal of India",
+      "scope": "central",
+      "state": "India",
+      "ministry": "Government of India",
+      "keywords": ["india.gov", "national portal", "central schemes", "subsidy"],
+      "urls": [
+        "https://www.india.gov.in/",
+        "https://pib.gov.in/"
+      ]
+    },
+    {
+      "id": "myscheme-hub",
+      "name": "myScheme National Schemes Hub",
+      "scope": "central",
+      "state": "India",
+      "ministry": "MeitY / NeGD",
+      "keywords": ["myscheme", "scheme finder", "central scheme", "eligibility"],
+      "urls": [
+        "https://www.myscheme.gov.in/"
+      ]
+    },
+    {
+      "id": "seva-sindhu",
+      "name": "Seva Sindhu Karnataka",
+      "scope": "karnataka",
+      "state": "Karnataka",
+      "ministry": "Government of Karnataka",
+      "keywords": ["seva sindhu", "sevasindhu", "karnataka services", "apply karnataka"],
+      "urls": [
+        "https://sevasindhu.karnataka.gov.in/"
+      ]
+    },
+    {
+      "id": "anna-bhagya",
+      "name": "Anna Bhagya",
+      "scope": "karnataka",
+      "state": "Karnataka",
+      "ministry": "Food, Civil Supplies & Consumer Affairs, Karnataka",
+      "keywords": ["anna bhagya", "rice", "ration", "food grains", "public distribution karnataka"],
+      "urls": [
+        "https://food.karnataka.gov.in/",
+        "https://sevasindhu.karnataka.gov.in/"
+      ]
+    },
+    {
+      "id": "gruha-jyothi",
+      "name": "Gruha Jyothi",
+      "scope": "karnataka",
+      "state": "Karnataka",
+      "ministry": "Energy Department, Karnataka",
+      "keywords": ["gruha jyothi", "gruhajyothi", "free electricity", "200 units", "bescom"],
+      "urls": [
+        "https://sevasindhu.karnataka.gov.in/"
+      ]
+    },
+    {
+      "id": "gruha-lakshmi",
+      "name": "Gruha Lakshmi",
+      "scope": "karnataka",
+      "state": "Karnataka",
+      "ministry": "Women & Child Development, Karnataka",
+      "keywords": ["gruha lakshmi", "gruhalakshmi", "women assistance", "2000", "homemaker"],
+      "urls": [
+        "https://sevasindhu.karnataka.gov.in/"
+      ]
+    },
+    {
+      "id": "shakti",
+      "name": "Shakti Scheme (Free Bus Travel)",
+      "scope": "karnataka",
+      "state": "Karnataka",
+      "ministry": "Transport Department, Karnataka",
+      "keywords": ["shakti", "free bus", "ksrtc", "women travel", "shakti yojana"],
+      "urls": [
+        "https://sevasindhu.karnataka.gov.in/"
+      ]
+    },
+    {
+      "id": "yuva-nidhi",
+      "name": "Yuva Nidhi",
+      "scope": "karnataka",
+      "state": "Karnataka",
+      "ministry": "Skill Development, Karnataka",
+      "keywords": ["yuva nidhi", "yuvanidhi", "unemployed graduate", "youth allowance"],
+      "urls": [
+        "https://sevasindhu.karnataka.gov.in/"
+      ]
+    },
+    {
+      "id": "karnataka-rdpr",
+      "name": "Karnataka Rural Development & Panchayat Raj",
+      "scope": "karnataka",
+      "state": "Karnataka",
+      "ministry": "RDPR Karnataka",
+      "keywords": ["rdpr", "panchayat", "rural development karnataka", "gram panchayat"],
+      "urls": [
+        "https://rdpr.karnataka.gov.in/"
+      ]
+    },
+    {
+      "id": "karnataka-ahvs",
+      "name": "Karnataka Animal Husbandry & Veterinary Services",
+      "scope": "karnataka",
+      "state": "Karnataka",
+      "ministry": "AHVS Karnataka",
+      "keywords": ["animal husbandry", "livestock", "veterinary", "cattle", "ahvs"],
+      "urls": [
+        "https://ahvs.karnataka.gov.in/"
+      ]
+    },
+    {
+      "id": "karnataka-food",
+      "name": "Karnataka Food & Civil Supplies",
+      "scope": "karnataka",
+      "state": "Karnataka",
+      "ministry": "Food & Civil Supplies Karnataka",
+      "keywords": ["pds", "ration card", "food civil supplies", "bpl", "antyodaya"],
+      "urls": [
+        "https://food.karnataka.gov.in/"
+      ]
+    }
+  ]
+}
