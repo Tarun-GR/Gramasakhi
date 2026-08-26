@@ -8,10 +8,11 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from jose import JWTError, jwt
+from jose import JWTError
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from app.core import security as jwt_security
 from app.core.config import settings
 from app.database.session import get_db
 from app.models.citizen_account import CitizenAccount
@@ -41,7 +42,12 @@ def get_current_citizen(
 ) -> CitizenAccount:
     token = credentials.credentials
     try:
-        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        payload = jwt_security.decode_access_token(token)
+        if not jwt_security.token_use_allowed(payload, "citizen"):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid token credentials.",
+            )
         account_id: Optional[str] = payload.get("sub")
         if not account_id:
             raise HTTPException(

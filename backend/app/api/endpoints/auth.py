@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Header, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Header, Query, Request
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta, timezone
 import logging
@@ -17,7 +17,7 @@ from app.schemas.auth import (
 )
 from app.core.config import settings
 from app.core import security
-from app.services.auth_rate_limit import auth_rate_limit_ok
+from app.services.auth_rate_limit import auth_rate_limit_ok, client_ip
 from app.services.otp_dev_retrieval import (
     dev_retrieval_openapi_visible,
     mask_phone_number,
@@ -79,7 +79,7 @@ def _consume_verified_otp(db: Session, phone_number: str) -> OTPVerification:
 
 
 def _token_payload(account: CitizenAccount) -> dict:
-    token = security.create_access_token(subject=str(account.id))
+    token = security.create_access_token(subject=str(account.id), token_use="citizen")
     return {
         "accessToken": token,
         "citizen_account_id": account.id,
@@ -88,21 +88,26 @@ def _token_payload(account: CitizenAccount) -> dict:
     }
 
 
+_GENERIC_LOGIN_ERROR = "Invalid phone number or password."
+
+
 @router.post("/login", response_model=TokenResponse)
-def login(request: LoginRequest, db: Session = Depends(get_db)):
+def login(request: LoginRequest, http_request: Request, db: Session = Depends(get_db)):
+    ip = client_ip(http_request)
+    rate_key = f"{ip}:{request.phone_number}"
+
     account = db.query(CitizenAccount).filter(
         CitizenAccount.phone_number == request.phone_number
     ).first()
-    if not account:
+    if not account or not account.is_active:
+        if not auth_rate_limit_ok(rate_key, bucket="login"):
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Too many attempts. Please wait before trying again.",
+            )
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="No account found with this mobile number.",
-        )
-
-    if not account.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="This account has been deactivated. Please contact support.",
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=_GENERIC_LOGIN_ERROR,
         )
 
     if request.login_type == "password":
@@ -112,9 +117,14 @@ def login(request: LoginRequest, db: Session = Depends(get_db)):
                 detail="Password is required for password login.",
             )
         if not security.verify_password(request.password, account.password_hash):
+            if not auth_rate_limit_ok(rate_key, bucket="login"):
+                raise HTTPException(
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                    detail="Too many attempts. Please wait before trying again.",
+                )
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Incorrect password. Please try again.",
+                detail=_GENERIC_LOGIN_ERROR,
             )
     elif request.login_type == "otp":
         otp_rec = (
@@ -127,9 +137,14 @@ def login(request: LoginRequest, db: Session = Depends(get_db)):
             .first()
         )
         if not otp_rec or _is_expired(otp_rec.expires_at):
+            if not auth_rate_limit_ok(rate_key, bucket="login"):
+                raise HTTPException(
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                    detail="Too many attempts. Please wait before trying again.",
+                )
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="OTP verification has expired or is invalid. Please verify OTP first.",
+                detail=_GENERIC_LOGIN_ERROR,
             )
         otp_rec.verified = False
         db.commit()
@@ -205,7 +220,12 @@ def dev_retrieve_otp(
 
 
 @router.post("/otp/verify")
-def verify_otp(request: OTPVerifyRequest, db: Session = Depends(get_db)):
+def verify_otp(request: OTPVerifyRequest, http_request: Request, db: Session = Depends(get_db)):
+    if not auth_rate_limit_ok(f"{client_ip(http_request)}:{request.phone_number}", bucket="otp_verify"):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many attempts. Please wait before trying again.",
+        )
     otp_rec = (
         db.query(OTPVerification)
         .filter(
@@ -285,7 +305,7 @@ def request_password_reset(request: OTPRequest, db: Session = Depends(get_db)):
         CitizenAccount.phone_number == request.phone_number
     ).first()
     if not account:
-        raise HTTPException(status_code=400, detail="Account with this mobile number does not exist.")
+        return {"message": "OTP verification code sent."}
 
     code = security.generate_otp()
     otp_hash = security.get_otp_hash(code)

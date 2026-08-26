@@ -84,6 +84,22 @@ class TestIvrA6(unittest.TestCase):
         )
         self.assertTrue(any("IVR_CITIZEN_ACCOUNT_ID" in e for e in errors))
 
+    def test_production_exotel_requires_webhook_secret(self):
+        errors = collect_ivr_production_config_errors(
+            type("S", (), {
+                "APP_ENV": "production",
+                "IVR_PUBLIC_BASE_URL": "https://api.example.in",
+                "IVR_CITIZEN_ACCOUNT_ID": "id-1",
+                "IVR_SYSTEM_ACCOUNT_PHONE": "",
+                "OTP_DEV_RETRIEVAL_ENABLED": False,
+                "OTP_CONSOLE_SIMULATOR_ENABLED": False,
+                "DATABASE_URL": "postgresql://x",
+                "IVR_PROVIDER": "exotel",
+                "IVR_WEBHOOK_SHARED_SECRET": "",
+            })()
+        )
+        self.assertTrue(any("IVR_WEBHOOK_SHARED_SECRET" in e for e in errors))
+
     def test_empty_call_sid_rejected(self):
         with self.assertRaises(CallSidValidationError):
             normalize_call_sid("")

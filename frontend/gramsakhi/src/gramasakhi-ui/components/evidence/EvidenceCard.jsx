@@ -1,6 +1,7 @@
 'use client';
 
 import { ExternalLink, CheckCircle2, Building2, FileText } from 'lucide-react';
+import { safeHttpUrl } from '../../lib/utils';
 
 export function EvidenceCard({ source }) {
   if (!source) return null;
@@ -12,9 +13,12 @@ export function EvidenceCard({ source }) {
           <CheckCircle2 className="w-4 h-4 text-tertiary-fixed-dim" />
           <span className="text-[11px] uppercase tracking-wider">{source.department || 'Official Government Source'}</span>
         </div>
-        {source.url && (
+        {source.url && (() => {
+          const href = safeHttpUrl(source.url);
+          if (!href) return null;
+          return (
           <a
-            href={source.url}
+            href={href}
             target="_blank"
             rel="noreferrer"
             className="text-on-surface-variant hover:text-primary p-1 rounded hover:bg-surface-variant flex items-center gap-1 text-[11px] font-medium"
@@ -23,7 +27,8 @@ export function EvidenceCard({ source }) {
             <span>View</span>
             <ExternalLink className="w-3 h-3" />
           </a>
-        )}
+          );
+        })()}
       </div>
 
       <h5 className="font-bold text-primary text-xs leading-snug">{source.title}</h5>

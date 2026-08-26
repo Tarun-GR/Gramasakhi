@@ -74,6 +74,40 @@ def ensure_sqlite_columns(eng=None) -> None:
                 except Exception:
                     pass
 
+    if dialect == "postgresql":
+        ensure_postgres_rls(eng)
+
+
+_RLS_TABLES = (
+    "users",
+    "family_accounts",
+    "family_sessions",
+    "otp_verifications",
+    "rag_documents",
+    "document_chunks",
+    "conversations",
+    "messages",
+    "audit_logs",
+    "activity_logs",
+)
+
+
+def ensure_postgres_rls(eng=None) -> None:
+    """Enable RLS without permissive policies (PostgREST/anon denied; owner API still works)."""
+    eng = eng or engine
+    if eng.dialect.name != "postgresql":
+        return
+    with eng.connect() as conn:
+        for table in _RLS_TABLES:
+            try:
+                conn.execute(text(f"ALTER TABLE IF EXISTS {table} ENABLE ROW LEVEL SECURITY"))
+                conn.commit()
+            except Exception:
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
+
 
 def run():
     print("=" * 55)

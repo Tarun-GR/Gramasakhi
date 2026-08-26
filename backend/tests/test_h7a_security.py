@@ -162,6 +162,104 @@ class TestH7ASecurity(unittest.TestCase):
         self.assertEqual(len(code), 6)
         self.assertTrue(code.isdigit())
 
+    def test_unknown_phone_login_does_not_enumerate(self):
+        unknown = self.client.post(
+            "/api/auth/login",
+            json={"phone_number": "9000000000", "password": "wrongpass", "login_type": "password"},
+        )
+        self.assertEqual(unknown.status_code, 401, unknown.text)
+        self.assertEqual(unknown.json()["detail"], "Invalid phone number or password.")
+
+        self._send_and_verify_otp("9111111111")
+        self.client.post("/api/auth/register", json=self._register_payload("9111111111"))
+        wrong = self.client.post(
+            "/api/auth/login",
+            json={"phone_number": "9111111111", "password": "not-the-password", "login_type": "password"},
+        )
+        self.assertEqual(wrong.status_code, 401, wrong.text)
+        self.assertEqual(wrong.json()["detail"], unknown.json()["detail"])
+
+    def test_login_failures_are_rate_limited(self):
+        with patch.object(settings, "AUTH_LOGIN_MAX_PER_WINDOW", 3):
+            reset_auth_rate_limits()
+            payload = {"phone_number": "9000000001", "password": "nope", "login_type": "password"}
+            for _ in range(3):
+                res = self.client.post("/api/auth/login", json=payload)
+                self.assertEqual(res.status_code, 401, res.text)
+            blocked = self.client.post("/api/auth/login", json=payload)
+            self.assertEqual(blocked.status_code, 429, blocked.text)
+
+    def test_forgot_password_does_not_enumerate_accounts(self):
+        res = self.client.post(
+            "/api/auth/forgot-password/request",
+            json={"phone_number": "9000000002"},
+        )
+        self.assertEqual(res.status_code, 200, res.text)
+        self.assertEqual(res.json()["message"], "OTP verification code sent.")
+
+    def test_static_uploads_are_not_public(self):
+        res = self.client.get("/static/uploads/knowledge-base__schemes__local-fallback-test.txt")
+        self.assertEqual(res.status_code, 404)
+
+    def test_admin_token_rejected_on_citizen_routes(self):
+        from app.models.user import User
+
+        db = self.SessionLocal()
+        admin = User(
+            email="admin-sec@example.com",
+            password_hash=security.get_password_hash("password123"),
+            first_name="Sec",
+            last_name="Admin",
+            role="ADMIN",
+        )
+        db.add(admin)
+        db.commit()
+        db.refresh(admin)
+        token = security.create_access_token(subject=str(admin.id), token_use="admin")
+        db.close()
+
+        res = self.client.get(
+            "/api/chat/conversations",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(res.status_code, 401, res.text)
+
+    def test_legacy_sha256_otp_still_verifies(self):
+        import hashlib
+
+        phone = "9222222222"
+        code = "424242"
+        db = self.SessionLocal()
+        db.add(
+            OTPVerification(
+                phone_number=phone,
+                otp_hash=hashlib.sha256(code.encode("utf-8")).hexdigest(),
+                expires_at=datetime.now(timezone.utc) + timedelta(minutes=3),
+                verified=False,
+                attempt_count=0,
+            )
+        )
+        db.commit()
+        db.close()
+        res = self.client.post(
+            "/api/auth/otp/verify",
+            json={"phone_number": phone, "code": code},
+        )
+        self.assertEqual(res.status_code, 200, res.text)
+
+    def test_schema_enables_rls(self):
+        from pathlib import Path
+
+        schema = Path("app/database/migrations/supabase_schema.sql").read_text(encoding="utf-8")
+        self.assertIn("ENABLE ROW LEVEL SECURITY", schema)
+        self.assertNotIn("USING (true)", schema)
+
+    def test_auth_responses_are_not_cached(self):
+        with patch.object(security, "generate_otp", return_value="111111"):
+            res = self.client.post("/api/auth/otp/send", json={"phone_number": "9333333330"})
+        self.assertEqual(res.status_code, 200, res.text)
+        self.assertEqual(res.headers.get("Cache-Control"), "no-store")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -127,6 +127,9 @@ class Settings(BaseSettings):
     AUTH_RATE_LIMIT_WINDOW_SECONDS: float = 3600.0
     AUTH_OTP_SEND_MAX_PER_WINDOW: int = 5
     AUTH_RATE_LIMIT_MAX_PER_WINDOW: int = 30
+    AUTH_LOGIN_WINDOW_SECONDS: float = 900.0
+    AUTH_LOGIN_MAX_PER_WINDOW: int = 10
+    AUTH_RATE_LIMIT_MAX_KEYS: int = 4096
     # Dev-only OTP console simulator (never prints OTP on Postgres/production DB)
     OTP_CONSOLE_SIMULATOR_ENABLED: bool = True
     # Dev-only OTP retrieval endpoint (requires APP_ENV != production + secret key)

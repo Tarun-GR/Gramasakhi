@@ -25,11 +25,9 @@ def _check_database() -> Dict[str, Any]:
 
     dialect = engine.dialect.name
     url = settings.DATABASE_URL or ""
-    host = "sqlite"
-    if "@" in url:
-        host = url.split("@", 1)[1]
-    elif url.startswith("sqlite"):
-        host = "sqlite (local file)"
+    host = "redacted"
+    if url.startswith("sqlite"):
+        host = "sqlite"
 
     try:
         with engine.connect() as conn:

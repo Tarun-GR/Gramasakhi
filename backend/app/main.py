@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import JSONResponse
 import logging
 import os
 import json
@@ -154,6 +154,19 @@ async def security_headers_middleware(request: Request, call_next):
             "Permissions-Policy",
             "camera=(), microphone=(self), geolocation=()",
         )
+        path = request.url.path or ""
+        if path.startswith("/api/auth") or path.startswith("/api/v1/super-admin/auth"):
+            response.headers["Cache-Control"] = "no-store"
+        if settings.APP_ENV.strip().lower() == "production":
+            response.headers.setdefault(
+                "Content-Security-Policy",
+                "default-src 'none'; frame-ancestors 'none'; base-uri 'none'",
+            )
+            if request.url.scheme == "https":
+                response.headers.setdefault(
+                    "Strict-Transport-Security",
+                    "max-age=31536000; includeSubDomains",
+                )
     return response
 
 
@@ -206,7 +219,10 @@ async def startup_event():
         threading.Thread(target=_warm_reranker, daemon=True).start()
 
 
-app.mount("/static", StaticFiles(directory="static"), name="static")
+# Local knowledge-base files are served only via authenticated admin download.
+# Do not mount /static — that previously exposed /static/uploads without auth.
+
+
 app.include_router(auth.router, prefix=f"{settings.API_V1_STR}/auth", tags=["auth"])
 app.include_router(chat.router, prefix=f"{settings.API_V1_STR}/chat", tags=["chat"])
 app.include_router(voice.router, prefix=f"{settings.API_V1_STR}/chat", tags=["voice"])

@@ -34,6 +34,14 @@ def collect_ivr_production_config_errors(settings: Settings) -> List[str]:
     if settings.OTP_CONSOLE_SIMULATOR_ENABLED and not settings.DATABASE_URL.startswith("sqlite"):
         errors.append("OTP_CONSOLE_SIMULATOR_ENABLED should be false in production.")
 
+    provider = str(getattr(settings, "IVR_PROVIDER", "mock") or "mock").strip().lower()
+    if provider not in {"", "mock", "disabled", "off"}:
+        secret = str(getattr(settings, "IVR_WEBHOOK_SHARED_SECRET", "") or "").strip()
+        if not secret:
+            errors.append(
+                "IVR_WEBHOOK_SHARED_SECRET is required when IVR_PROVIDER is not mock."
+            )
+
     return errors
 
 

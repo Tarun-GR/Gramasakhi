@@ -1,5 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
-from fastapi.responses import RedirectResponse
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Request
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from typing import Optional
@@ -24,7 +24,7 @@ from app.schemas.super_admin_schema import (
     WebIngestResponse,
 )
 from app.services.web_ingestion_service import WebIngestionService
-from app.config.gov_sources import GOV_SOURCES, list_catalog_schemes
+from app.services.auth_rate_limit import auth_rate_limit_ok, client_ip
 
 router = APIRouter()
 security_scheme = HTTPBearer()
@@ -34,11 +34,16 @@ def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security_scheme),
     db: Session = Depends(get_db),
 ) -> User:
-    from jose import jwt, JWTError
+    from jose import JWTError
 
     token = credentials.credentials
     try:
-        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        payload = security.decode_access_token(token)
+        if not security.token_use_allowed(payload, "admin"):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid token credentials.",
+            )
         user_id: str = payload.get("sub")
         if user_id is None:
             raise HTTPException(
@@ -103,30 +108,29 @@ def _doc_response(
 
 
 @router.post("/auth/login", response_model=SuperAdminTokenResponse)
-def super_admin_login(request: SuperAdminLoginRequest, db: Session = Depends(get_db)):
+def super_admin_login(request: SuperAdminLoginRequest, http_request: Request, db: Session = Depends(get_db)):
+    rate_key = f"{client_ip(http_request)}:{(request.email or '').lower()}"
+    generic = "Incorrect email or password."
+
     user = db.query(User).filter(User.email == request.email).first()
-    if not user:
+    if (
+        not user
+        or not user.is_active
+        or user.deleted_at is not None
+        or user.role not in ("SUPER_ADMIN", "ADMIN")
+        or not security.verify_password(request.password, user.password_hash)
+    ):
+        if not auth_rate_limit_ok(rate_key, bucket="login"):
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Too many attempts. Please wait before trying again.",
+            )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect email or password.",
-        )
-    if not user.is_active or user.deleted_at is not None:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="This account has been deactivated.",
-        )
-    if user.role not in ("SUPER_ADMIN", "ADMIN"):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Forbidden. You do not have admin privileges.",
-        )
-    if not security.verify_password(request.password, user.password_hash):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect email or password.",
+            detail=generic,
         )
 
-    token = security.create_access_token(subject=str(user.id))
+    token = security.create_access_token(subject=str(user.id), token_use="admin")
     return {
         "accessToken": token,
         "user": {
@@ -228,7 +232,7 @@ def upload_knowledge_document(
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to complete ingestion pipeline: {str(e)}",
+            detail="Failed to complete ingestion pipeline.",
         )
 
     log_audit(
@@ -350,7 +354,16 @@ def download_knowledge_document(
                 detail=f"Failed to generate download URL from storage: {str(e)}",
             )
     elif file_url.startswith("/static/uploads/"):
-        return RedirectResponse(file_url, status_code=307)
+        name = file_url.rstrip("/").split("/")[-1]
+        if not name or ".." in name or "/" in name or "\\" in name:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid file path.")
+        local_path = os.path.abspath(os.path.join("static", "uploads", name))
+        root = os.path.abspath(os.path.join("static", "uploads"))
+        if not (local_path == root or local_path.startswith(root + os.sep)):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid file path.")
+        if not os.path.isfile(local_path):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document file not found.")
+        return FileResponse(local_path, filename=name, media_type="application/octet-stream")
 
     raise HTTPException(
         status_code=status.HTTP_400_BAD_REQUEST,

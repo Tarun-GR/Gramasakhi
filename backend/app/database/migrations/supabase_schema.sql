@@ -154,7 +154,37 @@ CREATE TABLE IF NOT EXISTS activity_logs (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- 7) Create your first admin AFTER connecting the app, e.g.:
---    python -c "from app.core import security; ..."
--- or use the existing seed script once DATABASE_URL points at Supabase.
--- Do not leave default passwords in production.
+-- 8) Row Level Security — deny-by-default for PostgREST/anon.
+-- FastAPI connects as the table owner (DATABASE_URL) and is not subject to
+-- RLS unless FORCE ROW LEVEL SECURITY is set. Do not add "allow all" policies.
+DO $$
+DECLARE
+  t text;
+  tables text[] := ARRAY[
+    'users',
+    'family_accounts',
+    'family_sessions',
+    'otp_verifications',
+    'rag_documents',
+    'document_chunks',
+    'conversations',
+    'messages',
+    'audit_logs',
+    'activity_logs'
+  ];
+BEGIN
+  FOREACH t IN ARRAY tables LOOP
+    IF to_regclass('public.' || t) IS NOT NULL THEN
+      EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', t);
+    END IF;
+  END LOOP;
+END $$;
+
+DO $$
+BEGIN
+  REVOKE ALL ON ALL TABLES IN SCHEMA public FROM anon, authenticated;
+  REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM anon, authenticated;
+EXCEPTION
+  WHEN undefined_object THEN
+    NULL;
+END $$;
