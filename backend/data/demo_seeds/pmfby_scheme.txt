@@ -1,0 +1,37 @@
+Pradhan Mantri Fasal Bima Yojana (PMFBY)
+
+Scheme name: Pradhan Mantri Fasal Bima Yojana (PMFBY)
+Scope: Central Sector / Centrally Sponsored crop insurance scheme
+Ministry: Ministry of Agriculture & Farmers Welfare, Government of India
+Official portals: https://pmfby.gov.in/ and https://www.myscheme.gov.in/
+
+Purpose:
+PMFBY provides crop insurance cover to farmers against yield losses due to non-preventable
+natural risks such as drought, flood, pest attack, and other notified perils, as defined
+in the scheme guidelines for the insured season and crop.
+
+Eligibility (public scheme description):
+- All farmers growing notified crops in notified areas can enroll, including loanee and
+  non-loanee farmers, subject to state / season notifications.
+- Enrollment is typically done through banks, Common Service Centres (CSCs), insurance
+  company channels, or the PMFBY portal as notified for the season.
+- Coverage applies only for crops and areas notified for that season by the state government.
+
+Benefits:
+- Financial compensation for yield loss assessed under the scheme methodology for the
+  insured crop and area.
+- Premium rates for farmers are subsidized as per the scheme design; the balance premium
+  is shared by Central and State Governments according to the prevailing guidelines.
+- Exact sum insured, premium, and cut-off dates are season-specific and published in
+  official notifications.
+
+Documents / information commonly required at enrollment:
+- Land records / sowing certificate as applicable
+- Bank account details and Aadhaar as required by the enrollment channel
+- Crop and survey / village details for the notified area
+
+Important:
+- Farmers should confirm the current season's notified crops, cut-off dates, and premium
+  on https://pmfby.gov.in/ or the state agriculture portal before enrollment.
+- This summary is for citizen guidance from publicly described scheme information and
+  does not replace the official operational guidelines.

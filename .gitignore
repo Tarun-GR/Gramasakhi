@@ -1,34 +1,63 @@
-# Environment
-# Environment
+# Environment (templates stay trackable)
 .env
 .env.*
 **/.env
 !.env.example
-
-# Node
-!.env.example
+!**/.env.example
 
 # Node
 node_modules/
 **/node_modules/
 
-# Frontend builds
-
-# Frontend builds
+# Frontend / mobile builds and generated bundles
 dist/
 **/dist/
+dist-ssr/
+web-build/
+.expo/
+**/.expo/
+mobile/dist-gate/
+mobile/.expo-export-test/
+mobile/.claude/
 
-# Python cache
+# Python cache / venv
 __pycache__/
 **/__pycache__/
 *.pyc
 *.pyo
-
-# Python environments
 .venv/
 venv/
+.pytest_cache/
+.coverage
+coverage/
+htmlcov/
 
 # Local databases
 *.db
+*.sqlite
+*.sqlite3
 
+# Generated retrieval artifacts, uploads, caches
+backend/indexes/
+backend/test_hybrid_indexes/
+backend/tmp_e2e_indexes/
+backend/static/uploads/
+backend/data/myscheme_discovery_cache.json
+
+# Local scratch
 scratch_test.py
+backend/test_whisper.py
+
+# Logs / OS / editor
+*.log
+logs/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Keys / certs
+*.pem
+*.p12
+*.jks
+*.mobileprovision

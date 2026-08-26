@@ -1,6 +1,7 @@
 from pydantic import BaseModel, Field, field_validator
 from typing import Optional, Union
 from uuid import UUID
+from datetime import datetime
 
 
 def _clean_phone(v: str) -> str:
@@ -26,7 +27,7 @@ class LoginRequest(BaseModel):
 class TokenResponse(BaseModel):
     accessToken: str
     citizen_account_id: Union[str, UUID]
-    family_account_id: Optional[Union[str, UUID]] = None
+    family_account_id: Optional[Union[str, UUID]] = None  # alias of citizen_account_id; see docs/LEGACY_COMPATIBILITY.md
     phone_number: Optional[str] = None
 
 
@@ -80,3 +81,9 @@ class RegisterCredentials(BaseModel):
 class RegisterRequest(BaseModel):
     credentials: RegisterCredentials
     display_name: Optional[str] = None
+
+
+class OTPDevRetrievalResponse(BaseModel):
+    otp: str
+    expires_at: datetime
+    phone_number: str

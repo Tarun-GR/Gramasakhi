@@ -11,7 +11,7 @@ def generate_uuid():
 
 
 class Conversation(Base):
-    """Citizen conversation session (replaces clinical encounter concept)."""
+    """Citizen conversation session."""
 
     __tablename__ = "conversations"
 
@@ -25,6 +25,8 @@ class Conversation(Base):
     title = Column(String(255), nullable=True)
     active_scheme_context = Column(String(255), nullable=True)
     is_active = Column(Boolean, default=True, nullable=False)
+    deleted_at = Column(DateTime(timezone=True), nullable=True)
+    last_message_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
@@ -58,6 +60,10 @@ class Message(Base):
     rewritten_query = Column(Text, nullable=True)
     language = Column(String(20), nullable=True)
     evidence_status = Column(String(20), nullable=True)  # SUPPORTED | UNSUPPORTED | None
+    input_mode = Column(String(20), nullable=True)  # text | voice
+    knowledge_source = Column(String(50), nullable=True)
+    sources_json = Column(Text, nullable=True)  # JSON-serialized sources list
+    official_sources_json = Column(Text, nullable=True)
     created_at = Column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),

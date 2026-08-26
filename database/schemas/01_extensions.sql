@@ -1,3 +1,4 @@
+-- HISTORICAL: Sahyog 1.0 (not used by the GramSakhi runtime). See docs/LEGACY_COMPATIBILITY.md.
 -- Sahyog 1.0 Database Extensions Setup
 -- Author: Principal Database Architect
 -- Purpose: Setup required extensions for UUID generation, fuzzy search, and pgvector embeddings.

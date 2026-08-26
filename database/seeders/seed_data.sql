@@ -1,3 +1,4 @@
+-- HISTORICAL: Sahyog 1.0 mock seed data (not used by the GramSakhi runtime). See docs/LEGACY_COMPATIBILITY.md.
 -- Sahyog 1.0 Mock Seed Data Script
 -- Author: Principal Database Architect
 -- Purpose: Prepopulates the database with relational test data for validation and development testing.

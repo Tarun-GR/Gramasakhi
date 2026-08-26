@@ -47,7 +47,7 @@ class RagDocument(Base):
     __tablename__ = "rag_documents"
 
     id = Column(UUID(as_uuid=False), primary_key=True, default=generate_uuid)
-    # Legacy column retained for DB compatibility; no longer scoped to hospitals.
+    # Unused nullable column; physical name retained. See docs/LEGACY_COMPATIBILITY.md.
     hospital_id = Column(UUID(as_uuid=False), nullable=True)
     uploaded_by = Column(
         UUID(as_uuid=False), ForeignKey("users.id", ondelete="SET NULL"), nullable=True

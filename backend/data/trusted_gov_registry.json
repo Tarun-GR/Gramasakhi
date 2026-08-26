@@ -16,11 +16,29 @@
       "state": null,
       "organization": "Government of India",
       "domain": "myscheme.gov.in",
-      "base_urls": ["https://www.myscheme.gov.in/"],
+      "base_urls": [
+        "https://www.myscheme.gov.in/",
+        "https://www.myscheme.gov.in/search",
+        "https://www.myscheme.gov.in/external/search"
+      ],
       "categories": ["schemes", "welfare", "housing", "agriculture"],
       "source_directory": "curated",
       "enabled": true,
       "priority": 10,
+      "health": "active"
+    },
+    {
+      "id": "curated-myscheme-rules",
+      "name": "myScheme Eligibility / Rules Catalogue",
+      "level": "central",
+      "state": null,
+      "organization": "Government of India",
+      "domain": "rules.myscheme.gov.in",
+      "base_urls": ["https://rules.myscheme.gov.in/"],
+      "categories": ["schemes", "eligibility", "catalogue"],
+      "source_directory": "curated",
+      "enabled": true,
+      "priority": 11,
       "health": "active"
     },
     {
@@ -60,6 +78,19 @@
       "source_directory": "curated",
       "enabled": true,
       "priority": 40,
+      "health": "active"
+    },
+    {
+      "id": "curated-data-gov",
+      "name": "Open Government Data Platform India",
+      "level": "central",
+      "organization": "Government of India",
+      "domain": "data.gov.in",
+      "base_urls": ["https://data.gov.in/"],
+      "categories": ["datasets", "statistics", "government-data"],
+      "source_directory": "curated",
+      "enabled": true,
+      "priority": 45,
       "health": "active"
     },
     {
@@ -464,6 +495,48 @@
       "source_directory": "IGOD",
       "enabled": true,
       "priority": 1000,
+      "health": "active"
+    },
+    {
+      "id": "curated-ap-gov",
+      "name": "Government of Andhra Pradesh",
+      "level": "state",
+      "state": "Andhra Pradesh",
+      "organization": "Government of Andhra Pradesh",
+      "domain": "ap.gov.in",
+      "base_urls": ["https://www.ap.gov.in/"],
+      "categories": ["general", "welfare", "transport"],
+      "source_directory": "curated",
+      "enabled": true,
+      "priority": 80,
+      "health": "active"
+    },
+    {
+      "id": "curated-bhagyalaxmi-ka",
+      "name": "Bhagyalaxmi Scheme Portal (Karnataka)",
+      "level": "state",
+      "state": "Karnataka",
+      "organization": "Women and Child Development, Karnataka",
+      "domain": "bhagyalaxmi.karnataka.gov.in",
+      "base_urls": ["https://bhagyalaxmi.karnataka.gov.in/"],
+      "categories": ["welfare", "women", "child"],
+      "source_directory": "curated",
+      "enabled": true,
+      "priority": 55,
+      "health": "active"
+    },
+    {
+      "id": "curated-wcd-ka",
+      "name": "Women & Child Development Karnataka",
+      "level": "state",
+      "state": "Karnataka",
+      "organization": "WCD Karnataka",
+      "domain": "wcd.karnataka.gov.in",
+      "base_urls": ["https://wcd.karnataka.gov.in/"],
+      "categories": ["welfare", "women", "child"],
+      "source_directory": "curated",
+      "enabled": true,
+      "priority": 60,
       "health": "active"
     }
   ],

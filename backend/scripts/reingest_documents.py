@@ -9,7 +9,7 @@ import urllib.request
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from app.database.session import SessionLocal
-from app.models import family_account, patient, user, hospital, rag, audit
+from app.models import citizen_account, user, rag, audit
 from app.models.rag import RagDocument, DocumentChunk
 from app.services.storage import download_rag_document
 from app.services.rag import extract_text_from_bytes, chunk_text, get_embeddings, get_embeddings_batch

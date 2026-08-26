@@ -108,6 +108,7 @@ class TestPromptBuilder(unittest.TestCase):
         q = "ಪಿಎಂ ಕಿಸಾನ್ ಯೋಜನೆಯ ಪ್ರಯೋಜನಗಳು ಏನು?"
         prompt = build_prompt(q, PM_KISAN_EVIDENCE)
         self.assertIn("LANGUAGE:\nKannada", prompt)
+        self.assertIn("TARGET_RESPONSE_LANGUAGE: KN", prompt)
         self.assertEqual(detect_language(q), "Kannada")
 
 
@@ -143,11 +144,13 @@ class TestLlmServiceGeneration(unittest.TestCase):
             self.assertIn("income support of Rs 6000", prompt)
 
     def test_multilingual_prompt_language_kannada(self):
-        fake = _fake_urlopen_factory({"response": "ಪ್ರಯೋಜನಗಳು ರೂ. 6000."})
-        q = "ಪಿಎಂ ಕಿಸಾನ್ ಪ್ರಯೋಜನಗಳು ಏನು?"
+        fake = _fake_urlopen_factory(
+            {"response": "PM-KISAN \u0caf\u0ccb\u0c9c\u0ca8\u0cc6\u0caf \u0caa\u0ccd\u0cb0\u0caf\u0ccb\u0c9c\u0ca8 \u0cb0\u0cc2. 6000."}
+        )
+        q = "\u0caa\u0cbf\u0c8e\u0c82 \u0c95\u0cbf\u0cb8\u0cbe\u0ca8\u0ccd \u0caa\u0ccd\u0cb0\u0caf\u0ccb\u0c9c\u0ca8\u0c97\u0cb3\u0cc1 \u0c8f\u0ca8\u0cc1?"
         with patch.object(llm_service.urllib.request, "urlopen", side_effect=fake) as mock_open:
-            result = llm_service.generate_answer(q, PM_KISAN_EVIDENCE)
-            self.assertTrue(result["success"])
+            result = llm_service.generate_answer(q, PM_KISAN_EVIDENCE, response_language="KN")
+            self.assertTrue(result["success"], result)
             prompt = json.loads(mock_open.call_args[0][0].data.decode("utf-8"))["prompt"]
             self.assertIn("LANGUAGE:\nKannada", prompt)
             self.assertEqual(result["language"], "Kannada")

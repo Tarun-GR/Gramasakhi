@@ -1,4 +1,5 @@
--- GramSakhi / Sahyog — Supabase Postgres schema
+-- GramSakhi — Supabase Postgres schema
+-- Citizen accounts use physical table name family_accounts (compatibility; see docs/LEGACY_COMPATIBILITY.md).
 -- Run in: Supabase Dashboard → SQL Editor → New query → Run
 -- Project: jrhnkjpmpxozsildgonr
 
@@ -21,7 +22,7 @@ CREATE TABLE IF NOT EXISTS users (
   deleted_at TIMESTAMPTZ
 );
 
--- 3) Citizen / family accounts
+-- 3) Citizen accounts (physical table name family_accounts; see docs/LEGACY_COMPATIBILITY.md)
 CREATE TABLE IF NOT EXISTS family_accounts (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   phone_number VARCHAR(20) NOT NULL UNIQUE,
@@ -107,6 +108,8 @@ CREATE TABLE IF NOT EXISTS conversations (
   title VARCHAR(255),
   active_scheme_context VARCHAR(255),
   is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  deleted_at TIMESTAMPTZ,
+  last_message_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -119,6 +122,10 @@ CREATE TABLE IF NOT EXISTS messages (
   rewritten_query TEXT,
   language VARCHAR(20),
   evidence_status VARCHAR(20),
+  input_mode VARCHAR(20),
+  knowledge_source VARCHAR(50),
+  sources_json TEXT,
+  official_sources_json TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 

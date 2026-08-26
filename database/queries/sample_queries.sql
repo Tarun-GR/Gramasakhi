@@ -1,3 +1,4 @@
+-- HISTORICAL: Sahyog 1.0 query examples (not used by the GramSakhi runtime). See docs/LEGACY_COMPATIBILITY.md.
 -- Sahyog 1.0 Production Query Examples
 -- Author: Principal Database Architect
 -- Purpose: Reference queries for standard operations, indoor routing, vector RAG search, and compliance tracking.

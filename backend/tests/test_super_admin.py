@@ -7,7 +7,7 @@ from sqlalchemy.orm import sessionmaker
 from io import BytesIO
 
 from app.database.session import Base
-from app.models import family_account, user, rag, audit, conversation  # noqa: F401
+from app.models import citizen_account, user, rag, audit, conversation  # noqa: F401
 from app.models.rag import RagDocument, DocumentChunk
 from app.services.rag import ingest_document, ALLOWED_EXTENSIONS, MAX_FILE_SIZE_BYTES
 

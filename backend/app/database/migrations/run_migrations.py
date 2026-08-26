@@ -1,9 +1,8 @@
 """
-Sahyog — One-Time Schema Migration Script
-==========================================
-Run this ONCE to add the new audit columns to hospital_users:
-  - is_first_login  (BOOLEAN, default TRUE)
-  - password_changed (BOOLEAN, default FALSE)
+GramSakhi schema helpers.
+
+`ensure_sqlite_columns` is invoked on API startup to add missing GramSakhi
+columns on older local SQLite databases.
 
 Usage:
   cd backend
@@ -15,19 +14,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
 from sqlalchemy import text
 from app.database.session import engine
-
-MIGRATIONS = [
-    # Add is_first_login column — tracks whether the user is still on their generated temp password
-    """
-    ALTER TABLE hospital_users
-    ADD COLUMN IF NOT EXISTS is_first_login BOOLEAN NOT NULL DEFAULT TRUE;
-    """,
-    # Add password_changed column — set to TRUE once the user successfully changes their password
-    """
-    ALTER TABLE hospital_users
-    ADD COLUMN IF NOT EXISTS password_changed BOOLEAN NOT NULL DEFAULT FALSE;
-    """,
-]
 
 
 def ensure_sqlite_columns(eng=None) -> None:
@@ -47,8 +33,14 @@ def ensure_sqlite_columns(eng=None) -> None:
         ("rag_documents", "language", "VARCHAR(20)"),
         ("rag_documents", "document_type", "VARCHAR(100)"),
         ("rag_documents", "indexing_status", "VARCHAR(50)"),
+        ("conversations", "deleted_at", "DATETIME"),
+        ("conversations", "last_message_at", "DATETIME"),
+        ("messages", "input_mode", "VARCHAR(20)"),
+        ("messages", "knowledge_source", "VARCHAR(50)"),
+        ("messages", "sources_json", "TEXT"),
+        ("messages", "official_sources_json", "TEXT"),
     ]
-    with eng.begin() as conn:
+    with eng.connect() as conn:
         for table, col, coltype in columns:
             try:
                 if dialect == "sqlite":
@@ -57,26 +49,36 @@ def ensure_sqlite_columns(eng=None) -> None:
                     if col in existing:
                         continue
                     conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {coltype}"))
+                    conn.commit()
                 else:
-                    conn.execute(
-                        text(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col} {coltype}")
+                    pg_type = (
+                        "TIMESTAMPTZ"
+                        if coltype.upper() in ("DATETIME", "TIMESTAMP")
+                        else coltype
                     )
+                    conn.execute(text(f"SAVEPOINT ensure_{table}_{col}"))
+                    try:
+                        conn.execute(
+                            text(
+                                f"ALTER TABLE {table} "
+                                f"ADD COLUMN IF NOT EXISTS {col} {pg_type}"
+                            )
+                        )
+                        conn.execute(text(f"RELEASE SAVEPOINT ensure_{table}_{col}"))
+                        conn.commit()
+                    except Exception:
+                        conn.execute(text(f"ROLLBACK TO SAVEPOINT ensure_{table}_{col}"))
             except Exception:
-                # Table may not exist yet or column already present
-                pass
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
 
 
 def run():
     print("=" * 55)
-    print("Sahyog — Running schema migrations on hospital_users")
+    print("GramSakhi — ensuring schema columns")
     print("=" * 55)
-    with engine.begin() as conn:
-        for i, sql in enumerate(MIGRATIONS, 1):
-            try:
-                conn.execute(text(sql.strip()))
-                print(f"  [OK] Migration {i} executed successfully.")
-            except Exception as e:
-                print(f"  [SKIP] Migration {i} skipped or already applied: {e}")
     ensure_sqlite_columns(engine)
     print("=" * 55)
     print("Done.")

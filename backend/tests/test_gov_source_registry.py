@@ -146,6 +146,7 @@ class TestRedirectValidation(unittest.TestCase):
         from app.services.web_ingestion_service import WebIngestionService
 
         class FakeResp:
+            status_code = 200
             url = "https://evil.example.com/phish"
             content = b"hi"
             headers = {"content-type": "text/html"}

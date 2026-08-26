@@ -17,7 +17,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.core.config import settings
 from app.database.session import Base
-from app.models import audit, conversation, family_account, rag, user  # noqa: F401
+from app.models import audit, conversation, citizen_account, rag, user  # noqa: F401
 from app.models.rag import DocumentChunk, RagDocument
 from app.services import rag as rag_service
 from app.services.bm25_index import BM25Index

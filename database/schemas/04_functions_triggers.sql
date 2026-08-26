@@ -1,3 +1,4 @@
+-- HISTORICAL: Sahyog 1.0 (not used by the GramSakhi runtime). See docs/LEGACY_COMPATIBILITY.md.
 -- Sahyog 1.0 Database Functions and Triggers
 -- Author: Principal Database Architect
 -- Purpose: Automation of updated_at timestamps, HIPAA-compliant audit trails, and data integrity checks.

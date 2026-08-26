@@ -33,9 +33,15 @@
       "scope": "central",
       "state": "India",
       "ministry": "National Health Authority",
-      "keywords": ["ayushman", "pmjay", "pm-jay", "health insurance", "abha", "ayushman bharat"],
+      "keywords": ["ayushman", "pmjay", "pm-jay", "health insurance", "abha", "ayushman bharat", "jan arogya"],
       "urls": [
+        "https://www.india.gov.in/spotlight/ayushman-bharat-pradhan-mantri-jan-arogya-yojana",
         "https://nha.gov.in/",
+        "https://nha.gov.in/PM-JAY",
+        "https://nha.gov.in/strapi/landing-page",
+        "https://nha.gov.in/strapi/publication-pmjays",
+        "https://nha.gov.in/img/resources/Revised-Empanelment-and-De-empanelment-Guideline.pdf",
+        "https://nha.gov.in/img/resources/OM-Grievance-Redressal-Guideline-Dec-2021.pdf",
         "https://www.myscheme.gov.in/schemes/ab-pmjay"
       ]
     },
@@ -58,10 +64,17 @@
       "scope": "central",
       "state": "India",
       "ministry": "Department of Financial Services",
-      "keywords": ["pmjjby", "jeevan jyoti", "life insurance", "bima yojana"],
+      "keywords": [
+        "pmjjby",
+        "jeevan jyoti",
+        "jeevan jyothi",
+        "life insurance",
+        "bima yojana",
+        "pradhan mantri jeevan jyoti"
+      ],
       "urls": [
-        "https://financialservices.gov.in/",
-        "https://www.myscheme.gov.in/schemes/pmjjby"
+        "https://www.myscheme.gov.in/schemes/pmjjby",
+        "https://financialservices.gov.in/"
       ]
     },
     {
@@ -155,6 +168,8 @@
       "keywords": ["anna bhagya", "rice", "ration", "food grains", "public distribution karnataka"],
       "urls": [
         "https://food.karnataka.gov.in/",
+        "https://www.myscheme.gov.in/schemes/anna-bhagya",
+        "https://rdpr.karnataka.gov.in/",
         "https://sevasindhu.karnataka.gov.in/"
       ]
     },
@@ -166,6 +181,7 @@
       "ministry": "Energy Department, Karnataka",
       "keywords": ["gruha jyothi", "gruhajyothi", "free electricity", "200 units", "bescom"],
       "urls": [
+        "https://www.myscheme.gov.in/schemes/gruha-jyothi",
         "https://sevasindhu.karnataka.gov.in/"
       ]
     },
@@ -177,6 +193,8 @@
       "ministry": "Women & Child Development, Karnataka",
       "keywords": ["gruha lakshmi", "gruhalakshmi", "women assistance", "2000", "homemaker"],
       "urls": [
+        "https://www.myscheme.gov.in/schemes/gruha-lakshmi",
+        "https://wcd.karnataka.gov.in/",
         "https://sevasindhu.karnataka.gov.in/"
       ]
     },
@@ -233,6 +251,45 @@
       "keywords": ["pds", "ration card", "food civil supplies", "bpl", "antyodaya"],
       "urls": [
         "https://food.karnataka.gov.in/"
+      ]
+    },
+    {
+      "id": "bhagyalakshmi",
+      "name": "Bhagyalakshmi Scheme",
+      "scope": "karnataka",
+      "state": "Karnataka",
+      "ministry": "Women and Child Development, Karnataka",
+      "keywords": [
+        "bhagyalakshmi",
+        "bhagyalaxmi",
+        "bhagya lakshmi",
+        "bhagya laxmi",
+        "girl child karnataka",
+        "ಭಾಗ್ಯಲಕ್ಷ್ಮಿ"
+      ],
+      "urls": [
+        "https://bhagyalaxmi.karnataka.gov.in/",
+        "https://sevasindhu.karnataka.gov.in/",
+        "https://wcd.karnataka.gov.in/"
+      ]
+    },
+    {
+      "id": "ysr-vahana-mitra",
+      "name": "YSR Vahana Mitra",
+      "scope": "andhra_pradesh",
+      "state": "Andhra Pradesh",
+      "ministry": "Transport / Government of Andhra Pradesh",
+      "keywords": [
+        "ysr vahana mitra",
+        "ysr vahan mitra",
+        "vahana mitra",
+        "vahan mitra",
+        "ysrvm",
+        "auto taxi driver andhra"
+      ],
+      "urls": [
+        "https://web.umang.gov.in/landing/scheme/detail/ysr-vahana-mitra_ysrvm.html",
+        "https://www.ap.gov.in/"
       ]
     }
   ]

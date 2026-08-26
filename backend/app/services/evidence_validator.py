@@ -20,6 +20,27 @@ SAFE_FALLBACK_ANSWER = (
     "I don't have enough reliable information to answer that."
 )
 
+# Minimum extracted body length for evidence to count as substantive (not URL/metadata only).
+MIN_SUBSTANTIVE_CONTENT_CHARS = 40
+
+
+def has_substantive_content(doc: Dict[str, Any]) -> bool:
+    """True when a chunk carries enough extracted body text to ground an answer."""
+    body = str(doc.get("content") or doc.get("text") or "").strip()
+    return len(body) >= MIN_SUBSTANTIVE_CONTENT_CHARS
+
+_SAFE_FALLBACK_BY_LANG = {
+    "EN": SAFE_FALLBACK_ANSWER,
+    "KN": "ಈ ಪ್ರಶ್ನೆಗೆ ನನ್ನ ಬಳಿ ಸಾಕಷ್ಟು ವಿಶ್ವಾಸಾರ್ಹ ಮಾಹಿತಿ ಇಲ್ಲ.",
+    "HI": "इस प्रश्न का उत्तर देने के लिए मेरे पास पर्याप्त विश्वसनीय जानकारी नहीं है।",
+}
+
+
+def safe_fallback_answer(language: Optional[str] = None) -> str:
+    """Citizen-facing insufficient-evidence message in the response language."""
+    code = (language or "EN").strip().upper()[:2]
+    return _SAFE_FALLBACK_BY_LANG.get(code, SAFE_FALLBACK_ANSWER)
+
 # Intent / domain stopwords — not used as coverage requirements
 _STOPWORDS: Set[str] = {
     "a",
@@ -113,6 +134,11 @@ _INTENT_EXPAND: Dict[str, Set[str]] = {
     "apply": {"application", "register", "registration", "how"},
     "loan": {"credit", "subsidy", "interest"},
     "housing": {"house", "pmay", "rural"},
+    # Official circulars often say "return/reverse" instead of "refund"
+    "refund": {"return", "reverse", "repay", "reimbursement", "bharatkosh"},
+    "mechanism": {"process", "procedure", "method", "portal"},
+    "wrongly": {"incorrect", "wrong", "erroneous", "non-beneficiaries", "nonbeneficiaries"},
+    "amounts": {"amount", "money", "funds"},
 }
 
 
@@ -140,10 +166,14 @@ def extract_keywords(query: str) -> List[str]:
 
 
 def _doc_text(doc: Dict[str, Any]) -> str:
+    meta = doc.get("metadata") if isinstance(doc.get("metadata"), dict) else {}
     parts = [
         str(doc.get("content") or doc.get("text") or ""),
         str(doc.get("scheme_name") or ""),
         str(doc.get("document_title") or ""),
+        str(doc.get("source") or ""),
+        str((meta or {}).get("source") or ""),
+        str((meta or {}).get("url") or ""),
     ]
     return " ".join(parts).lower()
 
@@ -250,7 +280,8 @@ class EvidenceValidator:
         Keep only chunks the reranker considers relevant. A single strong chunk is
         valid evidence; padding it with weak ones only dilutes every signal.
         """
-        return [d for d in docs if _doc_relevance_score(d) >= self.doc_floor]
+        ranked = [d for d in docs if _doc_relevance_score(d) >= self.doc_floor]
+        return [d for d in ranked if has_substantive_content(d)]
 
     def check_relevance(self, docs: List[Dict[str, Any]]) -> Dict[str, Any]:
         if not docs:
@@ -317,6 +348,33 @@ class EvidenceValidator:
         if len(docs) == 1:
             # Single source: agreement vacuously holds (coverage/relevance still gate)
             return {"ok": True, "score": 1.0, "detail": "single_document", "pairwise": []}
+
+        # Chunks from the same official URL/document cannot "conflict" with each other
+        # (common with multi-page OCR). Compare across distinct sources only.
+        by_source: Dict[str, List[Dict[str, Any]]] = {}
+        for d in docs:
+            key = str(
+                d.get("source")
+                or d.get("document_id")
+                or (d.get("metadata") or {}).get("source")
+                or d.get("chunk_id")
+                or id(d)
+            )
+            by_source.setdefault(key, []).append(d)
+        if len(by_source) == 1:
+            return {
+                "ok": True,
+                "score": 1.0,
+                "detail": "single_source",
+                "pairwise": [],
+                "sources": list(by_source.keys()),
+            }
+        docs = [
+            max(group, key=lambda x: float(x.get("similarity_score") or 0.0))
+            for group in by_source.values()
+        ]
+        if len(docs) == 1:
+            return {"ok": True, "score": 1.0, "detail": "single_source", "pairwise": []}
 
         embeddings: List[List[float]] = []
         embed = self.embed_fn
@@ -397,10 +455,12 @@ class EvidenceValidator:
 
         evidence = self.prune_weak(docs)
         if not evidence:
+            had_ranked = any(_doc_relevance_score(d) >= self.doc_floor for d in docs)
+            reason = "no_substantive_evidence" if had_ranked else "no_relevant_evidence"
             return ValidationResult(
                 ok=False,
                 confidence="low",
-                reason="no_relevant_evidence",
+                reason=reason,
                 signals={
                     "pruning": {
                         "retrieved": len(docs),
@@ -411,6 +471,35 @@ class EvidenceValidator:
                         ),
                     }
                 },
+            )
+
+        # Hard scheme identity gate — similarity must never override wrong scheme.
+        try:
+            from app.services.myscheme_service import filter_evidence_by_scheme
+
+            before = len(evidence)
+            evidence = filter_evidence_by_scheme(q, evidence)
+            if before and not evidence:
+                return ValidationResult(
+                    ok=False,
+                    confidence="low",
+                    reason="wrong_scheme_evidence",
+                    signals={
+                        "pruning": {
+                            "retrieved": len(docs),
+                            "kept": 0,
+                            "floor": self.doc_floor,
+                            "scheme_rejected": before,
+                        }
+                    },
+                )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("scheme_filter_failed err=%s", type(exc).__name__)
+            return ValidationResult(
+                ok=False,
+                confidence="low",
+                reason="scheme_filter_error",
+                signals={"error": type(exc).__name__},
             )
 
         relevance = self.check_relevance(evidence)

@@ -153,31 +153,69 @@ class WebIngestionService:
             "Accept-Language": "en-IN,en;q=0.9,kn;q=0.8,hi;q=0.7",
         }
 
+        # Prefer configured per-source timeout when available
+        try:
+            from app.core.config import settings as _settings
+
+            timeout = float(getattr(_settings, "LIVE_GOV_TIMEOUT_SECONDS", FETCH_TIMEOUT))
+        except Exception:  # noqa: BLE001
+            timeout = FETCH_TIMEOUT
+
         def _get(verify: bool) -> Tuple[bytes, str]:
-            with httpx.Client(
-                follow_redirects=True, timeout=FETCH_TIMEOUT, verify=verify
-            ) as client:
-                resp = client.get(url, headers=headers)
-                resp.raise_for_status()
-                final_url = str(resp.url)
-                # Redirect destination must remain on a trusted registry domain
-                if not is_allowed_url(final_url):
-                    raise HTTPException(
-                        status_code=400,
-                        detail=(
-                            "Redirect target is not a trusted government source: "
-                            f"{final_url}"
-                        ),
+            import time as _time
+
+            last_exc: Optional[Exception] = None
+            for attempt in range(3):
+                try:
+                    with httpx.Client(
+                        follow_redirects=True, timeout=timeout, verify=verify
+                    ) as client:
+                        resp = client.get(url, headers=headers)
+                        # Bounded retry only for transient upstream failures
+                        if resp.status_code in (429, 502, 503, 504):
+                            if attempt < 2:
+                                _time.sleep(0.4 * (2**attempt))
+                                continue
+                            resp.raise_for_status()
+                        resp.raise_for_status()
+                        final_url = str(resp.url)
+                        if not is_allowed_url(final_url):
+                            raise HTTPException(
+                                status_code=400,
+                                detail=(
+                                    "Redirect target is not a trusted government source: "
+                                    f"{final_url}"
+                                ),
+                            )
+                        content = resp.content
+                        if len(content) > MAX_BYTES:
+                            raise HTTPException(
+                                status_code=413, detail=f"Remote file too large: {url}"
+                            )
+                        ctype = (
+                            (resp.headers.get("content-type") or "")
+                            .split(";")[0]
+                            .strip()
+                            .lower()
+                        )
+                        if not ctype and url.lower().endswith(".pdf"):
+                            ctype = "application/pdf"
+                        return content, ctype or "application/octet-stream"
+                except HTTPException:
+                    raise
+                except Exception as e:  # noqa: BLE001
+                    last_exc = e
+                    msg = str(e).lower()
+                    transient = any(
+                        tok in msg for tok in ("429", "502", "503", "504", "timeout", "timed out")
                     )
-                content = resp.content
-                if len(content) > MAX_BYTES:
-                    raise HTTPException(
-                        status_code=413, detail=f"Remote file too large: {url}"
-                    )
-                ctype = (resp.headers.get("content-type") or "").split(";")[0].strip().lower()
-                if not ctype and url.lower().endswith(".pdf"):
-                    ctype = "application/pdf"
-                return content, ctype or "application/octet-stream"
+                    if transient and attempt < 2:
+                        _time.sleep(0.4 * (2**attempt))
+                        continue
+                    raise
+            raise HTTPException(
+                status_code=502, detail=f"Could not fetch {url}: {last_exc}"
+            )
 
         try:
             content, ctype = _get(verify=True)
@@ -276,6 +314,15 @@ class WebIngestionService:
             ) from e
 
         soup = BeautifulSoup(html, "html.parser")
+
+        # Preserve tables before stripping structure
+        try:
+            from app.services.myscheme_service import extract_tables_as_text
+
+            table_text = extract_tables_as_text(html)
+        except Exception:
+            table_text = ""
+
         for tag in soup(["script", "style", "noscript", "svg", "iframe", "nav", "footer"]):
             tag.decompose()
 
@@ -299,6 +346,8 @@ class WebIngestionService:
             blocks.append(_normalize_text(root.get_text("\n", strip=True)))
 
         joined = max(blocks, key=len) if blocks else ""
+        if table_text:
+            joined = f"{joined}\n\n{table_text}".strip() if joined else table_text
         if title and title not in joined:
             joined = f"{title}\n\n{joined}"
         if base_url:

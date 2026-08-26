@@ -21,7 +21,13 @@ logger = logging.getLogger("gramsakhi.index_builder")
 
 
 def default_index_dir() -> Path:
-    return Path(getattr(settings, "HYBRID_INDEX_DIR", "indexes"))
+    """Resolve hybrid index dir relative to backend/ when not absolute (CWD-safe)."""
+    raw = getattr(settings, "HYBRID_INDEX_DIR", "indexes") or "indexes"
+    path = Path(raw)
+    if path.is_absolute():
+        return path
+    backend_root = Path(__file__).resolve().parents[2]
+    return (backend_root / path).resolve()
 
 
 def _parse_embedding(value: Any) -> Optional[List[float]]:
@@ -63,6 +69,7 @@ def load_all_chunks_from_db(db: Session) -> List[Dict[str, Any]]:
                 "document_title": doc.title if doc else None,
                 "scheme_name": (doc.scheme_name if doc else None)
                 or meta.get("scheme_name"),
+                "scheme_id": meta.get("scheme_id"),
                 "source": (doc.source if doc else None) or meta.get("source"),
                 "state": (doc.state if doc else None) or meta.get("state"),
                 "ministry": (doc.ministry if doc else None) or meta.get("ministry"),
@@ -88,7 +95,20 @@ class IndexBuilder:
         self.faiss.build_index(embeddings, ids)
 
     def build_bm25(self, chunks: List[Dict[str, Any]]) -> None:
-        docs = [{"id": c["chunk_id"], "text": c["content"]} for c in chunks]
+        # Include title/source so filename signals (e.g. "Refund Mechanism.pdf") are searchable
+        docs = []
+        for c in chunks:
+            text = " ".join(
+                x
+                for x in (
+                    c.get("document_title"),
+                    c.get("scheme_name"),
+                    c.get("source"),
+                    c.get("content"),
+                )
+                if x
+            )
+            docs.append({"id": c["chunk_id"], "text": text})
         self.bm25.build_index(docs)
 
     def save_indexes(self) -> None:
@@ -102,6 +122,7 @@ class IndexBuilder:
                 "content": meta.get("content"),
                 "document_title": meta.get("document_title"),
                 "scheme_name": meta.get("scheme_name"),
+                "scheme_id": meta.get("scheme_id"),
                 "source": meta.get("source"),
                 "state": meta.get("state"),
                 "ministry": meta.get("ministry"),

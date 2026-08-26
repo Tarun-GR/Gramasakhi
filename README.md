@@ -1,42 +1,92 @@
 # GramSakhi
 
-**GramSakhi: RAG-Based Vernacular GenAI LLM + IVR System for Last-Mile Governance**
+**GramSakhi: RAG-Based Vernacular GenAI LLM for Last-Mile Governance**
 
-Converted from Sahyog 1.0 (Phase 1 in progress). Healthcare clinical workflows have been removed from the active application path.
+Citizen-facing government scheme assistant (web, Android, IVR) with RAG over verified government sources.
+
+Converted from Sahyog 1.0. Historical notes: `migration_audit.md`, `docs/sahyog_to_gramsakhi_migration.md`. Compatibility names: `docs/LEGACY_COMPATIBILITY.md`.
+
+## Phase 2 review
+
+- Mentor pack: [`docs/PHASE_2_REVIEW.md`](docs/PHASE_2_REVIEW.md)
+- Demo checklist: [`docs/DEMO_CHECKLIST.md`](docs/DEMO_CHECKLIST.md)
+- System check: `cd backend && .\.venv\Scripts\python.exe scripts\gramsakhi_system_check.py`  
+  or `GET http://127.0.0.1:8000/health/system`
 
 ## Project structure
 
-- `backend/` — FastAPI API (citizen auth, admin auth, knowledge-base ingest)
-- `frontend/landing_portal/` — GramSakhi landing
-- `frontend/patient_portal/` — Citizen Ask GramSakhi (React/Vite)
-- `frontend/super_admin_portal/` — Admin knowledge-base management
-- `frontend/hospital_portal/` — Retired clinical UI (redirect notice only)
-- `backend/app/_legacy_healthcare/` — Preserved Sahyog healthcare modules (not imported)
+- `backend/` — FastAPI API (citizen auth, admin, RAG, live government, voice, IVR)
+- `frontend/gramsakhi/` — **Unified** GramSakhi web app (**5173**)
+  - `/` landing
+  - `/citizen/login` → `/chat`
+  - `/admin/login` → `/admin`, `/admin/knowledge`, `/admin/registry`
+- `mobile/` — Android (Expo) citizen app
+- `docs/` — architecture, demo, and historical migration notes
 
-## Backend
+## Local development
 
-```bash
+### Terminal 1 — Ollama (if not already a service)
+
+```powershell
+ollama serve
+# ollama pull nomic-embed-text && ollama pull llama3.2:3b
+```
+
+### Terminal 2 — Backend (port 8000)
+
+```powershell
 cd backend
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1   # Windows
-pip install -r requirements.txt
-python -m uvicorn app.main:app --reload --port 8000
+.\.venv\Scripts\Activate.ps1
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
 API docs: http://127.0.0.1:8000/docs
 
-## Frontends
+**PostgreSQL dev + Android OTP testing:** see [`backend/docs/OTP_DEV_RETRIEVAL.md`](backend/docs/OTP_DEV_RETRIEVAL.md) for the development-only OTP retrieval endpoint (manual use; never enable in production).
 
-| Portal | Command | Default URL |
-|--------|---------|-------------|
-| Landing | `cd frontend/landing_portal && npm install && npm run dev` | http://localhost:5173 |
-| Admin | `cd frontend/super_admin_portal && npm install && npm run dev` | http://localhost:5174 (or Vite-assigned) |
-| Citizen | `cd frontend/patient_portal && npm install && npm run dev` | http://localhost:5176 (configure port if needed) |
+### Terminal 3 — Unified frontend (port 5173)
 
-## Migration status
+```powershell
+cd frontend/gramsakhi
+npm install
+npm run dev
+```
 
-See `migration_audit.md` and `docs/sahyog_to_gramsakhi_migration.md`.
+App: http://127.0.0.1:5173
 
-**Phase 0** — Audit complete  
-**Phase 1** — Healthcare domain removed from active path  
-**Phases 2–8** — Government KB polish, FAISS+BM25+CE, evidence gate, Ollama generation, conversation rewrite, STT/TTS, IVR
+In Cursor, **“hey shaki”** starts API + unified frontend.
+
+| Surface | URL |
+|---------|-----|
+| Landing | http://127.0.0.1:5173/ |
+| Citizen login | http://127.0.0.1:5173/citizen/login |
+| Chat | http://127.0.0.1:5173/chat |
+| Admin login | http://127.0.0.1:5173/admin/login |
+| Admin | http://127.0.0.1:5173/admin |
+
+Prefer **127.0.0.1** on Windows (avoids localhost↔IPv6 mismatches).
+
+### Optional: Playwright (JS-heavy government sites)
+
+```powershell
+cd backend
+pip install playwright
+playwright install chromium
+```
+
+## Tests
+
+```powershell
+cd backend
+.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+```
+
+```powershell
+cd frontend/gramsakhi
+npm run build
+```
+
+## Migration notes
+
+See `migration_audit.md` and `docs/sahyog_to_gramsakhi_migration.md` (historical).
+Physical table/API aliases: `docs/LEGACY_COMPATIBILITY.md`.

@@ -1,3 +1,4 @@
+-- HISTORICAL: Sahyog 1.0 (not used by the GramSakhi runtime). See docs/LEGACY_COMPATIBILITY.md.
 -- Sahyog 1.0 Optimization Indexes
 -- Author: Principal Database Architect
 -- Purpose: Speeds up common relational joins, RAG similarity queries, and filters out soft-deleted records.

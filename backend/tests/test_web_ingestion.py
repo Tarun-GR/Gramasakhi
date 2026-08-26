@@ -8,7 +8,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.database.session import Base
-from app.models import family_account, user, rag, audit, conversation  # noqa: F401
+from app.models import citizen_account, user, rag, audit, conversation  # noqa: F401
 from app.models.rag import RagDocument, DocumentChunk
 from app.config.gov_sources import is_allowed_url, GOV_SOURCES, list_catalog_schemes
 from app.services.web_ingestion_service import (

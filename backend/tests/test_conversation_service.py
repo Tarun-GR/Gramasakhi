@@ -13,9 +13,9 @@ from sqlalchemy.orm import sessionmaker
 from app.core import security
 from app.core.config import settings
 from app.database.session import Base
-from app.models import family_account, user, rag, audit, conversation  # noqa: F401
+from app.models import citizen_account, user, rag, audit, conversation  # noqa: F401
 from app.models.conversation import Conversation, Message
-from app.models.family_account import FamilyAccount
+from app.models.citizen_account import CitizenAccount
 from app.services import conversation_service as cs
 from app.services import rag as rag_service
 
@@ -49,14 +49,14 @@ class TestConversationService(unittest.TestCase):
         self.db = self.SessionLocal()
         self.db.query(Message).delete()
         self.db.query(Conversation).delete()
-        self.db.query(FamilyAccount).delete()
+        self.db.query(CitizenAccount).delete()
         self.db.commit()
-        self.citizen_a = FamilyAccount(
+        self.citizen_a = CitizenAccount(
             phone_number="9000000001",
             password_hash=security.get_password_hash("password123"),
             display_name="Citizen A",
         )
-        self.citizen_b = FamilyAccount(
+        self.citizen_b = CitizenAccount(
             phone_number="9000000002",
             password_hash=security.get_password_hash("password123"),
             display_name="Citizen B",
@@ -237,7 +237,7 @@ class TestConversationService(unittest.TestCase):
         Session2 = sessionmaker(autocommit=False, autoflush=False, bind=engine2)
         db2 = Session2()
         try:
-            citizen = db2.query(FamilyAccount).filter(FamilyAccount.id == citizen_id).first()
+            citizen = db2.query(CitizenAccount).filter(CitizenAccount.id == citizen_id).first()
             self.assertIsNotNone(citizen)
             prior = cs.load_recent_messages(db2, conv_id)
             self.assertGreaterEqual(len(prior), 2)

@@ -3,7 +3,7 @@ from typing import Any, Union
 from jose import jwt
 import bcrypt
 import hashlib
-import random
+import secrets
 from app.core.config import settings
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -31,7 +31,7 @@ def create_access_token(subject: Union[str, Any], expires_delta: timedelta = Non
 
 def generate_otp() -> str:
     """Generates a random 6-digit numeric string for verification."""
-    return "".join(random.choices("0123456789", k=6))
+    return "".join(secrets.choice("0123456789") for _ in range(6))
 
 def get_otp_hash(otp: str) -> str:
     """Hashes the OTP string using SHA-256 for secure storage."""

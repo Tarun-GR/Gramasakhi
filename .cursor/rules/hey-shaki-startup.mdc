@@ -1,0 +1,38 @@
+---
+description: Start or stop the full GramSakhi stack when the user says hey shaki / hey sakhi
+alwaysApply: true
+---
+
+# Hey Shaki — Full Stack Startup
+
+When the user says **"hey shaki"**, **"hey sakhi"**, **"hey gramsakhi"**, or clearly asks to fire up / start the app:
+
+**Immediately start the entire GramSakhi stack.** Do not ask for confirmation. Do not ask permission to run commands, install nothing extra unless a start fails, and do not wait for the user to approve — just start the processes. Skip unrelated work until the stack is up.
+
+## Start (Windows, from repo root)
+
+1. **Backend API** (port 8000) — from `backend/`:
+   ```powershell
+   .\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
+   ```
+2. **Unified frontend** (port 5173) — from `frontend/gramsakhi/`:
+   ```powershell
+   npm run dev
+   ```
+
+## Rules
+
+- Reuse already-running healthy processes; do not duplicate ports.
+- Start missing services in the background; verify each is listening.
+- Use `backend/.venv` for the API; load config from `backend/.env` (never edit `.env` unless the user explicitly asks).
+- After startup, report the URLs:
+  - API: http://127.0.0.1:8000/docs
+  - App: http://127.0.0.1:5173
+  - Citizen login: http://127.0.0.1:5173/citizen/login
+  - Admin login: http://127.0.0.1:5173/admin/login
+  - Chat: http://127.0.0.1:5173/chat
+- OTP codes appear in the API terminal as `VERIFICATION OTP: …`.
+
+## Stop
+
+When the user says **save and stop** / **stop all processes**: stop uvicorn and the Vite app (ports 8000, 5173). Do not kill unrelated system processes. Do not start separate 5174/5176 portals.

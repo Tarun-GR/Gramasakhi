@@ -14,6 +14,19 @@ import urllib.request
 from typing import Any, Dict, List, Optional
 
 from app.core.config import settings
+from app.services.language_quality import (
+    build_regen_instruction,
+    cache_get_translation,
+    cache_put_translation,
+    validate_answer_quality,
+)
+from app.services.language_service import (
+    build_translation_prompt,
+    controlled_language_failure_message,
+    language_name,
+    normalize_language_code,
+    resolve_response_language,
+)
 from app.services.prompt_builder import build_prompt, detect_language
 
 logger = logging.getLogger(__name__)
@@ -113,23 +126,45 @@ def check_ollama_llm() -> Dict[str, Any]:
     return result
 
 
+def _generate_once(prompt: str) -> Dict[str, Any]:
+    """Single Ollama call; raises on transport errors."""
+    return _post_generate(prompt)
+
+
+def generate_from_fixed_prompt(prompt: str) -> Dict[str, Any]:
+    """Constrained single-shot generation (e.g. eligibility explanation)."""
+    model = get_llm_model()
+    raw = _generate_once(prompt)
+    return {
+        "model": model,
+        "response": raw.get("response") or "",
+    }
+
+
 def generate_answer(
     query: str,
     evidence: List[Dict[str, Any]],
     language: Optional[str] = None,
     conversation_context: Any = None,
+    response_language: Optional[str] = None,
+    strict_language_mode: bool = False,
+    assistance_context: Any = None,
 ) -> Dict[str, Any]:
     """
     Generate a grounded GramSakhi answer via Ollama.
 
-    Returns:
-        {"success": True, "answer": "...", "model": "...", "latency_ms": N, "language": "..."}
-        or
-        {"success": False, "error": "...", "model": "...", "latency_ms": N}
+    After generation, runs the language quality gate and may regenerate
+    up to MAX_LANGUAGE_REGEN_ATTEMPTS times. Does not bypass Evidence Validator
+    (caller must only invoke after PASS).
     """
     model = get_llm_model()
-    lang = detect_language(query, language)
+    code = normalize_language_code(response_language) or normalize_language_code(language)
+    if not code:
+        code = resolve_response_language(query or "").response_language
+    lang = language_name(code)
     started = time.perf_counter()
+    max_attempts = max(1, int(getattr(settings, "MAX_LANGUAGE_REGEN_ATTEMPTS", 2)) + 1)
+    gate_on = bool(getattr(settings, "LANGUAGE_QUALITY_GATE_ENABLED", True))
 
     if not (query or "").strip():
         return {
@@ -137,6 +172,7 @@ def generate_answer(
             "error": "Empty query",
             "model": model,
             "language": lang,
+            "response_language": code,
             "latency_ms": 0,
         }
     if not evidence:
@@ -145,104 +181,291 @@ def generate_answer(
             "error": "No evidence provided",
             "model": model,
             "language": lang,
+            "response_language": code,
             "latency_ms": 0,
         }
 
-    prompt = build_prompt(
-        query,
-        evidence,
-        language=language,
-        conversation_context=conversation_context,
-    )
+    from app.services.evidence_validator import has_substantive_content
 
-    logger.info(
-        "LLM request started model=%s evidence_chunks=%s language=%s",
-        model,
-        len(evidence),
-        lang,
-    )
+    substantive = [d for d in evidence if has_substantive_content(d)]
+    if not substantive:
+        return {
+            "success": False,
+            "error": "No substantive evidence provided",
+            "model": model,
+            "language": lang,
+            "response_language": code,
+            "latency_ms": 0,
+        }
+    evidence = substantive
 
-    try:
-        raw = _post_generate(prompt)
-    except TimeoutError:
-        latency_ms = int((time.perf_counter() - started) * 1000)
-        logger.warning(
-            "LLM generation timeout model=%s latency_ms=%s", model, latency_ms
+    regen_note = None
+    last_quality = None
+    answer = ""
+    attempt = 0
+    transport_error = None
+
+    for attempt in range(1, max_attempts + 1):
+        prompt = build_prompt(
+            query,
+            evidence,
+            language=language,
+            conversation_context=conversation_context,
+            response_language=code,
+            strict_language_mode=strict_language_mode,
+            regen_note=regen_note,
+            assistance_context=assistance_context,
         )
-        return {
-            "success": False,
-            "error": LLM_TIMEOUT,
-            "model": model,
-            "language": lang,
-            "latency_ms": latency_ms,
-        }
-    except urllib.error.HTTPError as e:
-        latency_ms = int((time.perf_counter() - started) * 1000)
-        logger.warning(
-            "LLM generation HTTP error model=%s status=%s latency_ms=%s",
+        logger.info(
+            "LLM request started model=%s evidence_chunks=%s language=%s "
+            "response_language=%s generation_attempt=%s",
             model,
-            e.code,
-            latency_ms,
+            len(evidence),
+            lang,
+            code,
+            attempt,
         )
-        return {
-            "success": False,
-            "error": LLM_UNAVAILABLE,
-            "model": model,
-            "language": lang,
-            "latency_ms": latency_ms,
-        }
-    except (urllib.error.URLError, ConnectionError, OSError) as e:
-        latency_ms = int((time.perf_counter() - started) * 1000)
-        logger.warning(
-            "LLM generation connection failure model=%s err=%s latency_ms=%s",
-            model,
-            type(e).__name__,
-            latency_ms,
+        try:
+            raw = _generate_once(prompt)
+        except TimeoutError:
+            transport_error = LLM_TIMEOUT
+            break
+        except urllib.error.HTTPError as e:
+            logger.warning(
+                "LLM generation HTTP error model=%s status=%s", model, e.code
+            )
+            transport_error = LLM_UNAVAILABLE
+            break
+        except (urllib.error.URLError, ConnectionError, OSError) as e:
+            logger.warning(
+                "LLM generation connection failure model=%s err=%s",
+                model,
+                type(e).__name__,
+            )
+            transport_error = LLM_UNAVAILABLE
+            break
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                "LLM generation unexpected error model=%s err=%s",
+                model,
+                type(e).__name__,
+            )
+            transport_error = LLM_UNAVAILABLE
+            break
+
+        answer = clean_llm_response(raw.get("response") or "")
+        if not answer:
+            transport_error = LLM_EMPTY
+            break
+
+        if not gate_on:
+            last_quality = None
+            break
+
+        last_quality = validate_answer_quality(
+            answer,
+            response_language=code,
+            evidence=evidence,
+            strict_language_mode=strict_language_mode,
+            mode="generation",
+            query=query,
         )
-        return {
-            "success": False,
-            "error": LLM_UNAVAILABLE,
-            "model": model,
-            "language": lang,
-            "latency_ms": latency_ms,
-        }
-    except Exception as e:  # noqa: BLE001
-        latency_ms = int((time.perf_counter() - started) * 1000)
-        logger.warning(
-            "LLM generation unexpected error model=%s err=%s latency_ms=%s",
-            model,
-            type(e).__name__,
-            latency_ms,
+        logger.info(
+            "language_validation attempt=%s passed=%s failures=%s",
+            attempt,
+            last_quality.passed,
+            last_quality.failures,
         )
-        return {
-            "success": False,
-            "error": LLM_UNAVAILABLE,
-            "model": model,
-            "language": lang,
-            "latency_ms": latency_ms,
-        }
+        if last_quality.passed:
+            break
+        if attempt >= max_attempts:
+            break
+        regen_note = build_regen_instruction(last_quality, response_language=code)
 
     latency_ms = int((time.perf_counter() - started) * 1000)
-    answer = clean_llm_response(raw.get("response") or "")
-    if not answer:
+
+    if transport_error and not answer:
+        return {
+            "success": False,
+            "error": transport_error,
+            "model": model,
+            "language": lang,
+            "response_language": code,
+            "latency_ms": latency_ms,
+            "generation_attempt": attempt,
+        }
+
+    if gate_on and last_quality is not None and not last_quality.passed:
         logger.warning(
-            "LLM generation empty response model=%s latency_ms=%s", model, latency_ms
+            "quality_gate_result=FAIL after attempts=%s failures=%s",
+            attempt,
+            last_quality.failures,
         )
         return {
             "success": False,
-            "error": LLM_EMPTY,
+            "error": "language_quality_failed",
+            "answer": controlled_language_failure_message(code, kind="generation"),
             "model": model,
             "language": lang,
+            "response_language": code,
             "latency_ms": latency_ms,
+            "generation_attempt": attempt,
+            "quality_failures": list(last_quality.failures),
+            "quality_scores": dict(last_quality.scores),
+            "controlled_failure": True,
         }
 
     logger.info(
-        "LLM generation completed model=%s latency_ms=%s", model, latency_ms
+        "LLM generation completed model=%s latency_ms=%s response_language=%s "
+        "generation_attempt=%s quality_gate_result=%s",
+        model,
+        latency_ms,
+        code,
+        attempt,
+        "PASS" if not last_quality or last_quality.passed else "FAIL",
     )
     return {
         "success": True,
         "answer": answer,
         "model": model,
         "language": lang,
+        "response_language": code,
         "latency_ms": latency_ms,
+        "generation_attempt": attempt,
+        "quality_scores": dict(last_quality.scores) if last_quality else {},
+    }
+
+
+def translate_answer(
+    previous_answer: str,
+    *,
+    target_language: str,
+    strict_language_mode: bool = False,
+) -> Dict[str, Any]:
+    """Translate a prior assistant answer. Does not retrieve or validate evidence."""
+    model = get_llm_model()
+    code = normalize_language_code(target_language) or "EN"
+    lang = language_name(code)
+    started = time.perf_counter()
+    max_attempts = max(1, int(getattr(settings, "MAX_LANGUAGE_REGEN_ATTEMPTS", 2)) + 1)
+    gate_on = bool(getattr(settings, "LANGUAGE_QUALITY_GATE_ENABLED", True))
+
+    if not (previous_answer or "").strip():
+        return {
+            "success": False,
+            "error": "No previous answer to translate",
+            "model": model,
+            "language": lang,
+            "response_language": code,
+            "latency_ms": 0,
+        }
+
+    cached = cache_get_translation(previous_answer, code)
+    if cached:
+        logger.info("translation cache hit target=%s", code)
+        return {
+            "success": True,
+            "answer": cached,
+            "model": model,
+            "language": lang,
+            "response_language": code,
+            "latency_ms": 0,
+            "knowledge_source": "translation",
+            "cached": True,
+        }
+
+    regen_note = None
+    last_quality = None
+    answer = ""
+    attempt = 0
+    transport_error = None
+
+    for attempt in range(1, max_attempts + 1):
+        prompt = build_translation_prompt(
+            previous_answer, target_language=code, regen_note=regen_note
+        )
+        logger.info(
+            "LLM translation started model=%s target=%s generation_attempt=%s",
+            model,
+            code,
+            attempt,
+        )
+        try:
+            raw = _generate_once(prompt)
+        except TimeoutError:
+            transport_error = LLM_TIMEOUT
+            break
+        except Exception as e:  # noqa: BLE001
+            logger.warning("LLM translation failure err=%s", type(e).__name__)
+            transport_error = LLM_UNAVAILABLE
+            break
+
+        answer = clean_llm_response(raw.get("response") or "")
+        if not answer:
+            transport_error = LLM_EMPTY
+            break
+
+        if not gate_on or code == "EN":
+            break
+
+        last_quality = validate_answer_quality(
+            answer,
+            response_language=code,
+            source_text=previous_answer,
+            strict_language_mode=strict_language_mode,
+            mode="translation",
+        )
+        logger.info(
+            "translation language_validation attempt=%s passed=%s failures=%s",
+            attempt,
+            last_quality.passed,
+            last_quality.failures,
+        )
+        if last_quality.passed:
+            break
+        if attempt >= max_attempts:
+            break
+        regen_note = build_regen_instruction(last_quality, response_language=code)
+
+    latency_ms = int((time.perf_counter() - started) * 1000)
+
+    if transport_error and not answer:
+        return {
+            "success": False,
+            "error": transport_error,
+            "model": model,
+            "language": lang,
+            "response_language": code,
+            "latency_ms": latency_ms,
+            "generation_attempt": attempt,
+        }
+
+    if gate_on and code != "EN" and last_quality is not None and not last_quality.passed:
+        return {
+            "success": False,
+            "error": "translation_quality_failed",
+            "answer": controlled_language_failure_message(code, kind="translation"),
+            "model": model,
+            "language": lang,
+            "response_language": code,
+            "latency_ms": latency_ms,
+            "generation_attempt": attempt,
+            "quality_failures": list(last_quality.failures),
+            "controlled_failure": True,
+            "knowledge_source": "translation",
+        }
+
+    if answer and (not gate_on or code == "EN" or (last_quality and last_quality.passed)):
+        cache_put_translation(previous_answer, code, answer)
+
+    return {
+        "success": True,
+        "answer": answer,
+        "model": model,
+        "language": lang,
+        "response_language": code,
+        "latency_ms": latency_ms,
+        "knowledge_source": "translation",
+        "generation_attempt": attempt,
+        "quality_scores": dict(last_quality.scores) if last_quality else {},
     }

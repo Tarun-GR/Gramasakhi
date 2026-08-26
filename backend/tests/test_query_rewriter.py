@@ -78,6 +78,14 @@ class TestQueryRewriter(unittest.TestCase):
         out = qr.rewrite_query(original, history)
         self.assertEqual(out["original_query"], original)
 
+    def test_stt_guruha_jyoti_not_forced_onto_pm_kisan(self):
+        """Whisper often emits 'Guruha Jyoti Mahiti'; must not append prior PM-KISAN."""
+        history = [{"role": "user", "content": "Tell me about PM-KISAN."}]
+        out = qr.rewrite_query("Guruha Jyoti Mahiti", history)
+        self.assertNotIn("PM-KISAN", out["rewritten_query"])
+        self.assertEqual(out["active_scheme"], "Gruha Jyoti")
+        self.assertFalse(out["was_rewritten"])
+
 
 if __name__ == "__main__":
     unittest.main()

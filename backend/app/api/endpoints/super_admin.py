@@ -409,8 +409,11 @@ def refresh_gov_source_registry(
 
 @router.get("/gov-registry/health")
 def gov_registry_health(current_admin: User = Depends(get_current_super_admin)):
-    """Inspect registry freshness and per-source health."""
+    """Inspect registry freshness, per-source health, and live acquisition status."""
+    from app.core.config import settings
     from app.services import gov_source_registry as registry
+    from app.services.acquisition.browser_playwright import playwright_available
+    from app.services.acquisition.reliability import acquire_stats_snapshot
 
     sources = registry.list_sources(enabled_only=False)
     by_health: dict = {}
@@ -418,9 +421,26 @@ def gov_registry_health(current_admin: User = Depends(get_current_super_admin)):
         h = s.get("health") or ("active" if s.get("enabled", True) else "disabled")
         by_health.setdefault(h, 0)
         by_health[h] += 1
+    snap = acquire_stats_snapshot()
     return {
         "stats": registry.registry_stats(),
         "health_counts": by_health,
+        "acquisition": {
+            "browser_enabled": bool(getattr(settings, "LIVE_GOV_BROWSER_ENABLED", True)),
+            "browser_runtime_available": playwright_available(),
+            "max_browser_actions": int(
+                getattr(settings, "LIVE_GOV_MAX_BROWSER_ACTIONS", 8)
+            ),
+            "max_pages": int(getattr(settings, "LIVE_GOV_MAX_PAGES", 6)),
+            "max_documents": int(getattr(settings, "LIVE_GOV_MAX_DOCUMENTS", 6)),
+            "attempts": snap.get("attempts"),
+            "successes": snap.get("successes"),
+            "failures": snap.get("failures"),
+            "by_method": snap.get("by_method"),
+            "by_failure_code": snap.get("by_failure_code"),
+            "capabilities": snap.get("capabilities"),
+            "recent_source_health": snap.get("recent_health"),
+        },
         "sources": [
             {
                 "id": s.get("id"),

@@ -14,9 +14,9 @@ from app.core import security
 from app.core.config import settings
 from app.database.session import Base, get_db
 from app.main import app
-from app.models import family_account, user, rag, audit, conversation  # noqa: F401
+from app.models import citizen_account, user, rag, audit, conversation  # noqa: F401
 from app.models.conversation import Conversation, Message
-from app.models.family_account import FamilyAccount
+from app.models.citizen_account import CitizenAccount
 from app.services import rag as rag_service
 
 
@@ -61,13 +61,13 @@ class TestChatAPI(unittest.TestCase):
         db = self.SessionLocal()
         db.query(Message).delete()
         db.query(Conversation).delete()
-        db.query(FamilyAccount).delete()
-        self.a = FamilyAccount(
+        db.query(CitizenAccount).delete()
+        self.a = CitizenAccount(
             phone_number="9111111111",
             password_hash=security.get_password_hash("password123"),
             display_name="A",
         )
-        self.b = FamilyAccount(
+        self.b = CitizenAccount(
             phone_number="9222222222",
             password_hash=security.get_password_hash("password123"),
             display_name="B",

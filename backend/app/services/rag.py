@@ -1,5 +1,6 @@
 import os
 import hashlib
+import logging
 import math
 import json
 import uuid
@@ -15,6 +16,8 @@ from app.models.rag import RagDocument, DocumentChunk
 from app.core.config import settings
 from app.services.storage import upload_rag_document, delete_rag_document
 
+logger = logging.getLogger("gramsakhi.rag")
+
 # Try importing pypdf for PDF extraction
 try:
     import pypdf
@@ -24,6 +27,44 @@ except ImportError:
 # Max file size: 10MB
 MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024
 ALLOWED_EXTENSIONS = {".pdf", ".txt"}
+
+def _ocr_pdf_pages(content: bytes, *, max_pages: int = 8) -> List[Dict[str, Any]]:
+    """OCR fallback for scanned / image-only PDFs (pymupdf + RapidOCR)."""
+    try:
+        import numpy as np
+        import pymupdf
+        from PIL import Image
+        from rapidocr_onnxruntime import RapidOCR
+    except Exception:
+        return []
+
+    pages_data: List[Dict[str, Any]] = []
+    try:
+        doc = pymupdf.open(stream=content, filetype="pdf")
+    except Exception:
+        return []
+
+    ocr = RapidOCR()
+    try:
+        limit = min(int(doc.page_count), max(1, int(max_pages)))
+        for idx in range(limit):
+            page = doc.load_page(idx)
+            pix = page.get_pixmap(matrix=pymupdf.Matrix(2, 2))
+            img = Image.open(BytesIO(pix.tobytes("png")))
+            result, _ = ocr(np.array(img))
+            text = " ".join(
+                line[1] for line in (result or []) if line and len(line) > 1
+            ).strip()
+            pages_data.append({"page": idx + 1, "text": text})
+    except Exception:
+        return []
+    finally:
+        try:
+            doc.close()
+        except Exception:
+            pass
+    return pages_data
+
 
 def extract_text_from_bytes(content: bytes, ext: str) -> List[Dict[str, Any]]:
     """Extracts text contents from file bytes, page by page. Returns list of chunk sources."""
@@ -50,6 +91,13 @@ def extract_text_from_bytes(content: bytes, ext: str) -> List[Dict[str, Any]]:
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail=f"Failed to parse PDF document: {str(e)}"
             )
+        # Scanned government PDFs often have no text layer — OCR when empty.
+        joined = " ".join((p.get("text") or "") for p in pages_data).strip()
+        if len(joined) < 40:
+            ocr_pages = _ocr_pdf_pages(content)
+            ocr_joined = " ".join((p.get("text") or "") for p in ocr_pages).strip()
+            if len(ocr_joined) >= 40:
+                pages_data = ocr_pages
     return pages_data
 
 def chunk_text(pages_data: List[Dict[str, Any]], chunk_size: int = 500, overlap: int = 100) -> List[Dict[str, Any]]:
@@ -310,6 +358,25 @@ def ingest_raw_bytes(
         if not pages_data or all(not p.get("text", "").strip() for p in pages_data):
             raise ValueError("Document contains no readable text.")
 
+        # Keep filename/title tokens in chunk text so scanned PDFs whose body
+        # never says "refund" (only the filename does) remain discoverable.
+        try:
+            from urllib.parse import unquote, urlparse
+            from pathlib import PurePosixPath
+
+            fname = ""
+            if source:
+                fname = unquote(PurePosixPath(urlparse(str(source)).path).name)
+                for suf in (".pdf", ".PDF", ".txt", ".TXT"):
+                    if fname.endswith(suf):
+                        fname = fname[: -len(suf)]
+                fname = fname.replace("_", " ").replace("-", " ").strip()
+            header = " ".join(x for x in (title, scheme_name, fname) if x)
+            if header and pages_data:
+                pages_data[0]["text"] = f"{header}. {pages_data[0].get('text') or ''}".strip()
+        except Exception:
+            pass
+
         chunks = chunk_text(pages_data)
         if not chunks:
             raise ValueError("No clean chunks could be generated from document text.")
@@ -535,6 +602,62 @@ def get_query_embedding(query: str) -> List[float]:
     return vector
 
 
+def _source_filename_overlap(query: str, source: str) -> int:
+    """Count distinctive query tokens present in a document source URL/filename."""
+    import re
+
+    q = set(re.findall(r"[a-z0-9]{4,}", (query or "").lower()))
+    q -= {"what", "when", "with", "from", "that", "this", "have", "been", "under", "about"}
+    s = set(re.findall(r"[a-z0-9]{4,}", (source or "").lower()))
+    return len(q & s)
+
+
+def _prefer_source_aligned(
+    query: str,
+    ranked: List[Dict[str, Any]],
+    pool: List[Dict[str, Any]],
+    top_k: int,
+) -> List[Dict[str, Any]]:
+    """
+    CrossEncoder can bury OCR/official PDFs whose filename matches the question
+    (e.g. 'PM Kisan Refund Mechanism.pdf'). Prefer that document cluster when the
+    URL/filename clearly matches the ask — mixing unrelated CE winners causes
+    false 'conflicting_evidence' failures.
+    """
+    ranked = list(ranked or [])
+    strong = [
+        h
+        for h in pool
+        if _source_filename_overlap(query, str(h.get("source") or "")) >= 2
+        and len(str(h.get("content") or h.get("text") or "").strip()) >= 40
+    ]
+    strong.sort(
+        key=lambda x: float(x.get("bm25_score") or x.get("hybrid_score") or 0.0),
+        reverse=True,
+    )
+    if len(strong) >= 2:
+        out: List[Dict[str, Any]] = []
+        for item in strong[:top_k]:
+            row = dict(item)
+            row["similarity_score"] = max(float(row.get("similarity_score") or 0.0), 0.85)
+            row["source_aligned"] = True
+            out.append(row)
+        return out
+
+    if not strong:
+        return ranked[:top_k]
+
+    injected: List[Dict[str, Any]] = []
+    for item in strong[: max(1, top_k // 2)]:
+        row = dict(item)
+        row["similarity_score"] = max(float(row.get("similarity_score") or 0.0), 0.85)
+        row["source_aligned"] = True
+        injected.append(row)
+    inj_ids = {i.get("chunk_id") for i in injected}
+    merged = injected + [r for r in ranked if r.get("chunk_id") not in inj_ids]
+    return merged[:top_k]
+
+
 def hybrid_retrieve(
     db: Session,
     query: str,
@@ -584,15 +707,20 @@ def hybrid_retrieve(
                 "content": row.content,
                 "document_title": doc.title if doc else None,
                 "scheme_name": getattr(doc, "scheme_name", None) if doc else None,
+                "source": getattr(doc, "source", None) if doc else None,
                 "metadata": row.metadata_dict,
             }
+        row_meta = meta.get("metadata") or {}
+        if not isinstance(row_meta, dict):
+            row_meta = {}
         hydrated.append(
             {
                 **item,
                 "content": meta.get("content"),
                 "document_title": meta.get("document_title"),
                 "scheme_name": meta.get("scheme_name"),
-                "metadata": meta.get("metadata"),
+                "scheme_id": meta.get("scheme_id") or row_meta.get("scheme_id"),
+                "metadata": row_meta if row_meta else meta.get("metadata"),
                 "source": meta.get("source"),
                 "state": meta.get("state"),
                 "ministry": meta.get("ministry"),
@@ -603,18 +731,30 @@ def hybrid_retrieve(
             }
         )
 
+    # Scheme identity is a hard filter before ranking/CE for explicit scheme queries.
+    try:
+        from app.services.myscheme_service import filter_evidence_by_scheme
+
+        # Empty is valid: wrong-scheme hits must not proceed to CE/Ollama.
+        hydrated = filter_evidence_by_scheme(query, hydrated)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("hybrid scheme filter failed: %s", type(exc).__name__)
+        return []
+
     if use_rerank and hydrated:
         try:
             reranker = get_reranker(settings.CROSS_ENCODER_MODEL)
-            reranked = reranker.rerank(query, hydrated, top_k=top_k)
+            # Rerank a wider pool so filename-aligned OCR docs are still available
+            # to inject after CE (which often buries noisy OCR text).
+            reranked = reranker.rerank(query, hydrated, top_k=max(top_k, min(len(hydrated), top_k * 3)))
             for r in reranked:
                 r["similarity_score"] = float(r.get("ce_score", r.get("hybrid_score", 0.0)))
-            return reranked
-        except Exception:
+            return _prefer_source_aligned(query, reranked, hydrated, top_k)
+        except Exception as e:  # noqa: BLE001
             # Graceful degradation if CrossEncoder unavailable
-            pass
+            logger.warning("CrossEncoder rerank failed: %s", type(e).__name__)
 
-    return hydrated[:top_k]
+    return _prefer_source_aligned(query, hydrated, hydrated, top_k)
 
 
 def _pgvector_retrieve(
@@ -672,17 +812,55 @@ def retrieve_similar_chunks(
     _ = hospital_id
     try:
         return hybrid_retrieve(db, query_text, top_k=limit)
-    except Exception:
+    except Exception as e:  # noqa: BLE001
+        logger.warning("hybrid_retrieve failed: %s", type(e).__name__)
         # Preserve previous behaviour if hybrid stack fails (e.g. missing deps / SQLite)
         try:
             return _pgvector_retrieve(db, query_text, limit=limit)
-        except Exception:
+        except Exception as e2:  # noqa: BLE001
+            logger.warning("pgvector retrieve failed: %s", type(e2).__name__)
             return []
 
 
 def strip_private_fields(docs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Drop internal keys (e.g. raw embeddings) before returning docs over the API."""
-    return [{k: v for k, v in d.items() if not k.startswith("_")} for d in docs]
+    """Drop internal keys before returning docs over the API; dedupe by public URL."""
+    _internal_keys = frozenset(
+        {
+            "ce_score",
+            "source_aligned",
+            "hybrid_score",
+            "faiss_score",
+            "bm25_score",
+            "chunk_id",
+            "faiss_norm",
+            "bm25_norm",
+            "similarity_score",
+        }
+    )
+    out: List[Dict[str, Any]] = []
+    seen_urls: set[str] = set()
+    for d in docs or []:
+        item = {
+            k: v
+            for k, v in d.items()
+            if not k.startswith("_") and k not in _internal_keys
+        }
+        src = str(item.get("source") or item.get("canonical_url") or "")
+        dtype = str(item.get("document_type") or "")
+        src_l = src.lower()
+        item["document_url"] = src
+        item["is_pdf"] = (
+            "PDF" in dtype.upper()
+            or src_l.endswith(".pdf")
+            or "/pdf" in src_l
+        )
+        url_key = item["document_url"]
+        if url_key and url_key in seen_urls:
+            continue
+        if url_key:
+            seen_urls.add(url_key)
+        out.append(item)
+    return out
 
 
 LLM_CONTROLLED_FAILURE_ANSWER = (
@@ -696,6 +874,9 @@ def _call_llm_after_validation(
     *,
     language: Optional[str] = None,
     conversation_context: Any = None,
+    response_language: Optional[str] = None,
+    strict_language_mode: bool = False,
+    assistance_context: Any = None,
 ) -> Dict[str, Any]:
     """
     LLM entrypoint — MUST only be invoked after EvidenceValidator PASS.
@@ -703,22 +884,26 @@ def _call_llm_after_validation(
     Returns the llm_service result dict (success/answer/error). Callers must
     not invent an ungrounded answer when success is False.
     """
-    from app.services.evidence_validator import SAFE_FALLBACK_ANSWER
+    from app.services.evidence_validator import has_substantive_content, safe_fallback_answer
     from app.services.llm_service import generate_answer
 
-    # Guardrail: refuse empty evidence even if caller bypasses gate
-    if not docs:
+    # Guardrail: refuse empty or URL-only evidence even if caller bypasses gate
+    substantive = [d for d in (docs or []) if has_substantive_content(d)]
+    if not substantive:
         return {
             "success": False,
-            "error": "No evidence provided",
-            "answer": SAFE_FALLBACK_ANSWER,
+            "error": "No substantive evidence provided",
+            "answer": safe_fallback_answer(response_language),
         }
 
     return generate_answer(
         query=query,
-        evidence=docs,
+        evidence=substantive,
         language=language,
         conversation_context=conversation_context,
+        response_language=response_language,
+        strict_language_mode=strict_language_mode,
+        assistance_context=assistance_context,
     )
 
 
@@ -733,6 +918,9 @@ def answer_with_evidence_gate(
     language: Optional[str] = None,
     conversation_context: Any = None,
     enable_live_fallback: bool = False,
+    response_language: Optional[str] = None,
+    strict_language_mode: bool = False,
+    assistance_context: Any = None,
 ) -> Dict[str, Any]:
     """
     Retrieve → Validate Evidence → (PASS → LLM) | (FAIL → optional live gov fallback).
@@ -741,40 +929,103 @@ def answer_with_evidence_gate(
     Live government search runs ONLY when indexed evidence is insufficient and
     enable_live_fallback is True. Live path reuses existing ingestion + this gate
     (with live fallback disabled) — never PDF→LLM shortcuts.
+
+    response_language controls answer language only (not retrieval).
     """
     from app.services.evidence_validator import (
         EvidenceValidator,
         SAFE_FALLBACK_ANSWER,
         ValidationResult,
+        safe_fallback_answer,
     )
 
     q = (query or "").strip()
     v: EvidenceValidator = validator or EvidenceValidator()
 
+    # Multilingual retrieval bridge (adapter) — does not redesign FAISS/BM25/CE.
+    from app.services.multilingual_retrieval_service import (
+        build_retrieval_plan,
+        log_retrieval_diagnostics,
+        multi_query_hybrid_retrieve,
+    )
+
+    active_scheme = None
+    if assistance_context is not None:
+        active_scheme = getattr(assistance_context, "detected_scheme", None)
+
+    ml_plan = build_retrieval_plan(
+        q,
+        language=response_language,
+        active_scheme=active_scheme,
+    )
+    validation_query = (ml_plan.validation_query or q).strip() or q
+    live_query = (ml_plan.live_search_query or q).strip() or q
+
     # Queries that can never pass the gate skip retrieval entirely (saves an embed call).
     if settings.EVIDENCE_GATE_ENABLED:
-        pre = v.validate(q, [])
+        pre = v.validate(validation_query, [])
         if pre.reason in ("empty_query", "query_too_short"):
-            return {
-                "answer": SAFE_FALLBACK_ANSWER,
-                "confidence": "low",
-                "reason": pre.reason,
-                "signals": pre.signals,
-                "sources": [],
-                "validated": False,
-                "llm_invoked": False,
-                "knowledge_source": "none",
-            }
+            # Also try original if validation query collapsed oddly
+            if validation_query != q:
+                pre = v.validate(q, [])
+            if pre.reason in ("empty_query", "query_too_short"):
+                return {
+                    "answer": safe_fallback_answer(response_language),
+                    "confidence": "low",
+                    "reason": pre.reason,
+                    "signals": pre.signals,
+                    "sources": [],
+                    "validated": False,
+                    "llm_invoked": False,
+                    "knowledge_source": "none",
+                    "response_language": response_language,
+                }
 
     docs: List[Dict[str, Any]] = []
+    retrieval_error: Optional[str] = None
     if q:
         try:
-            docs = hybrid_retrieve(db, q, top_k=top_k, use_rerank=use_rerank)
-        except Exception:
+            docs = multi_query_hybrid_retrieve(
+                db, ml_plan, top_k=top_k, use_rerank=use_rerank
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning("multi_query_hybrid_retrieve failed: %s", type(e).__name__)
             try:
-                docs = _pgvector_retrieve(db, q, limit=int(top_k or settings.HYBRID_TOP_K))
-            except Exception:
-                docs = []
+                docs = hybrid_retrieve(db, q, top_k=top_k, use_rerank=use_rerank)
+            except Exception as e2:  # noqa: BLE001
+                logger.warning("hybrid_retrieve failed: %s", type(e2).__name__)
+                try:
+                    docs = _pgvector_retrieve(
+                        db, validation_query or q, limit=int(top_k or settings.HYBRID_TOP_K)
+                    )
+                except Exception as e3:  # noqa: BLE001
+                    retrieval_error = type(e3).__name__
+                    logger.warning(
+                        "all retrieval paths failed (last=%s) — check Ollama/embeddings",
+                        retrieval_error,
+                    )
+                    docs = []
+
+    # Final wrong-scheme hard gate before Evidence Validator / Ollama.
+    try:
+        from app.services.myscheme_service import filter_evidence_by_scheme
+
+        docs = filter_evidence_by_scheme(validation_query or q, docs)
+    except Exception:
+        pass
+
+    if retrieval_error and not docs:
+        return {
+            "answer": safe_fallback_answer(response_language),
+            "confidence": "low",
+            "reason": "retrieval_unavailable",
+            "signals": {"retrieval_error": retrieval_error},
+            "sources": [],
+            "validated": False,
+            "llm_invoked": False,
+            "knowledge_source": "none",
+            "response_language": response_language,
+        }
 
     if not settings.EVIDENCE_GATE_ENABLED:
         # Still never invent: require at least one doc
@@ -794,12 +1045,18 @@ def answer_with_evidence_gate(
                 "confidence": "medium",
                 "reason": "gate_disabled",
                 "sources": strip_private_fields(docs),
-                "validated": True,
+                "validated": False,
                 "llm_invoked": False,
                 "knowledge_source": "indexed",
             }
         llm_result = _call_llm_after_validation(
-            q, docs, language=language, conversation_context=conversation_context
+            q,
+            docs,
+            language=language,
+            conversation_context=conversation_context,
+            response_language=response_language,
+            strict_language_mode=strict_language_mode,
+            assistance_context=assistance_context,
         )
         # Tests may mock this to return a plain string
         if isinstance(llm_result, str):
@@ -808,7 +1065,7 @@ def answer_with_evidence_gate(
                 "confidence": "medium",
                 "reason": "gate_disabled",
                 "sources": strip_private_fields(docs),
-                "validated": True,
+                "validated": False,
                 "llm_invoked": True,
                 "knowledge_source": "indexed",
             }
@@ -818,7 +1075,7 @@ def answer_with_evidence_gate(
                 "confidence": "medium",
                 "reason": "gate_disabled",
                 "sources": strip_private_fields(docs),
-                "validated": True,
+                "validated": False,
                 "llm_invoked": True,
                 "llm_model": llm_result.get("model"),
                 "llm_latency_ms": llm_result.get("latency_ms"),
@@ -830,14 +1087,34 @@ def answer_with_evidence_gate(
             "reason": "llm_unavailable",
             "error": llm_result.get("error"),
             "sources": strip_private_fields(docs),
-            "validated": True,
+            "validated": False,
             "llm_invoked": True,
             "llm_model": llm_result.get("model"),
             "llm_latency_ms": llm_result.get("latency_ms"),
             "knowledge_source": "indexed",
         }
 
-    result: ValidationResult = v.validate(q, docs)
+    # Validate with semantic/English intent when KN/HI so English PDFs can PASS;
+    # LLM still receives the citizen query `q` unchanged.
+    result: ValidationResult = v.validate(validation_query, docs)
+    if (
+        not result.ok
+        and validation_query != q
+        and result.reason in ("query_too_short", "low_coverage", "insufficient_coverage")
+    ):
+        # Conservative second check: never loosen the gate — only retry if
+        # original Latin terms might still validate (mixed queries).
+        alt = v.validate(q, docs)
+        if alt.ok:
+            result = alt
+
+    log_retrieval_diagnostics(
+        ml_plan,
+        evidence_passed=result.ok,
+        live_fallback_used=False,
+        merged_n=len(docs),
+        failure_category=None if result.ok else "EVIDENCE_INSUFFICIENT",
+    )
 
     if not result.ok:
         # Indexed evidence insufficient — optional live government fallback
@@ -854,14 +1131,21 @@ def answer_with_evidence_gate(
                 print(
                     f"LIVE_FALLBACK_TRIGGERED validator_ok=False "
                     f"reason={result.reason} live_fallback_enabled=True "
-                    f"query={q[:160]!r}",
+                    f"query={q[:160]!r} live_query={live_query[:160]!r}",
                     flush=True,
                 )
                 live = try_live_gov_fallback(
                     db,
-                    q,
+                    live_query,
                     language=language,
                     conversation_context=conversation_context,
+                )
+                log_retrieval_diagnostics(
+                    ml_plan,
+                    evidence_passed=False,
+                    live_fallback_used=True,
+                    merged_n=len(docs),
+                    failure_category="LIVE_SOURCE_ATTEMPTED",
                 )
                 live_rid = live.get("live_request_id")
                 live_meta_base = {
@@ -884,61 +1168,83 @@ def answer_with_evidence_gate(
                         language=language,
                         conversation_context=conversation_context,
                         enable_live_fallback=False,
+                        response_language=response_language,
+                        strict_language_mode=strict_language_mode,
+                        assistance_context=assistance_context,
                     )
                     if second.get("validated"):
                         second["knowledge_source"] = "live_government"
                         second["live_status"] = LIVE_EVIDENCE_VALIDATED
                         second["live_meta"] = live_meta_base
                         second["live_request_id"] = live_rid
+                        if response_language:
+                            second["response_language"] = response_language
                         return second
+                    from app.services.citizen_failure_ux import build_citizen_live_failure
+
+                    ux = build_citizen_live_failure(
+                        q,
+                        language=language,
+                        failure_codes=live.get("failure_codes")
+                        or ["live_evidence_insufficient"],
+                        candidates_tried=int(live.get("candidates_tried") or 0),
+                        ingested_count=len(live.get("ingested") or []),
+                        preferred_status=live.get("preferred_status")
+                        or "information_not_found",
+                        guidance_urls=live.get("guidance_urls"),
+                    )
                     return {
-                        "answer": NO_VERIFIED_INFORMATION,
-                        "confidence": "low",
+                        **ux,
                         "reason": "live_evidence_insufficient",
                         "signals": second.get("signals") or result.signals,
                         "sources": [],
-                        "validated": False,
-                        "llm_invoked": False,
-                        "knowledge_source": "none",
-                        "live_status": LIVE_EVIDENCE_INSUFFICIENT,
                         "live_meta": live_meta_base,
                         "live_request_id": live_rid,
                     }
+                from app.services.citizen_failure_ux import build_citizen_live_failure
+
+                ux = build_citizen_live_failure(
+                    q,
+                    language=language,
+                    failure_codes=live.get("failure_codes")
+                    or [live.get("status") or NO_TRUSTED_INFORMATION_FOUND],
+                    candidates_tried=int(live.get("candidates_tried") or 0),
+                    ingested_count=len(live.get("ingested") or []),
+                    preferred_status=live.get("preferred_status"),
+                    guidance_urls=live.get("guidance_urls"),
+                )
                 return {
-                    "answer": NO_VERIFIED_INFORMATION,
-                    "confidence": "low",
+                    **ux,
                     "reason": "no_trusted_information",
                     "signals": result.signals,
                     "sources": [],
-                    "validated": False,
-                    "llm_invoked": False,
-                    "knowledge_source": "none",
-                    "live_status": live.get("status") or NO_TRUSTED_INFORMATION_FOUND,
                     "live_meta": {
                         "latency_ms": live.get("latency_ms"),
                         "live_request_id": live_rid,
+                        "failure_codes": live.get("failure_codes"),
                     },
                     "live_request_id": live_rid,
                 }
             except Exception as e:  # noqa: BLE001
                 # Live failures must not crash the API
                 print(f"Live gov fallback error: {type(e).__name__}: {e}", flush=True)
-                from app.services.live_gov_retrieval_service import NO_VERIFIED_INFORMATION
+                from app.services.citizen_failure_ux import build_citizen_live_failure
 
+                ux = build_citizen_live_failure(
+                    q,
+                    language=language,
+                    failure_codes=["live_fallback_error"],
+                    preferred_status="temporary_failure",
+                )
                 return {
-                    "answer": NO_VERIFIED_INFORMATION,
-                    "confidence": "low",
+                    **ux,
                     "reason": "live_fallback_error",
                     "signals": result.signals,
                     "sources": [],
-                    "validated": False,
-                    "llm_invoked": False,
-                    "knowledge_source": "none",
-                    "live_status": "LIVE_FALLBACK_ERROR",
                 }
 
         return {
-            "answer": SAFE_FALLBACK_ANSWER,
+            "answer": safe_fallback_answer(response_language),
             "confidence": "low",
             "reason": result.reason,
             "signals": result.signals,
@@ -946,10 +1252,19 @@ def answer_with_evidence_gate(
             "validated": False,
             "llm_invoked": False,
             "knowledge_source": "none",
+            "response_language": response_language,
         }
 
-    # PASS — only now may LLM run, and only on the chunks that survived pruning
+    # PASS — only now may LLM run. Trim evidence for generation only;
+    # keep full validated sources (including PDF URLs) for the citizen.
     evidence = result.evidence or docs
+    llm_evidence = evidence
+    try:
+        from app.services.myscheme_service import select_question_aware_evidence
+
+        llm_evidence = select_question_aware_evidence(q, evidence)
+    except Exception:
+        pass
     if skip_llm:
         return {
             "answer": None,
@@ -963,7 +1278,13 @@ def answer_with_evidence_gate(
         }
 
     llm_result = _call_llm_after_validation(
-        q, evidence, language=language, conversation_context=conversation_context
+        q,
+        llm_evidence,
+        language=language,
+        conversation_context=conversation_context,
+        response_language=response_language,
+        strict_language_mode=strict_language_mode,
+        assistance_context=assistance_context,
     )
     # Tests may mock this helper to return a plain string
     if isinstance(llm_result, str):
@@ -976,6 +1297,7 @@ def answer_with_evidence_gate(
             "validated": True,
             "llm_invoked": True,
             "knowledge_source": "indexed",
+            "response_language": response_language,
         }
     if llm_result.get("success"):
         return {
@@ -989,11 +1311,15 @@ def answer_with_evidence_gate(
             "llm_model": llm_result.get("model"),
             "llm_latency_ms": llm_result.get("latency_ms"),
             "knowledge_source": "indexed",
+            "response_language": llm_result.get("response_language") or response_language,
         }
+    # Prefer language-aware controlled message (do not silently switch to English)
+    controlled = llm_result.get("answer") if llm_result.get("controlled_failure") else None
+    reason = "language_quality_failed" if llm_result.get("controlled_failure") else "llm_unavailable"
     return {
-        "answer": LLM_CONTROLLED_FAILURE_ANSWER,
+        "answer": controlled or LLM_CONTROLLED_FAILURE_ANSWER,
         "confidence": "low",
-        "reason": "llm_unavailable",
+        "reason": reason,
         "error": llm_result.get("error"),
         "signals": result.signals,
         "sources": strip_private_fields(evidence),
@@ -1002,4 +1328,5 @@ def answer_with_evidence_gate(
         "llm_model": llm_result.get("model"),
         "llm_latency_ms": llm_result.get("latency_ms"),
         "knowledge_source": "indexed",
+        "response_language": llm_result.get("response_language") or response_language,
     }

@@ -19,30 +19,87 @@ logger = logging.getLogger("gramsakhi.query_rewriter")
 
 # Known scheme aliases (longest match first). Expand as catalog grows.
 _SCHEME_ALIASES: Tuple[Tuple[str, str], ...] = (
-    ("pmay-g", "PMAY-G"),
-    ("pmay g", "PMAY-G"),
-    ("pradhan mantri awaas yojana gramin", "PMAY-G"),
-    ("pradhan mantri awas yojana gramin", "PMAY-G"),
-    ("pmay urban", "PMAY-U"),
-    ("pmay-u", "PMAY-U"),
-    ("pm-kisan", "PM-KISAN"),
-    ("pm kisan", "PM-KISAN"),
-    ("pmkisan", "PM-KISAN"),
-    ("kisan samman nidhi", "PM-KISAN"),
-    ("ayushman bharat", "Ayushman Bharat PM-JAY"),
-    ("pm-jay", "Ayushman Bharat PM-JAY"),
-    ("pmjay", "Ayushman Bharat PM-JAY"),
-    ("mgnrega", "MGNREGA"),
-    ("nrega", "MGNREGA"),
+    ('pmay-g', 'PMAY-G'),
+    ('pmay g', 'PMAY-G'),
+    ('pradhan mantri awaas yojana gramin', 'PMAY-G'),
+    ('pradhan mantri awas yojana gramin', 'PMAY-G'),
+    ('pmay urban', 'PMAY-U'),
+    ('pmay-u', 'PMAY-U'),
+    ('pm-kisan', 'PM-KISAN'),
+    ('pm kisan', 'PM-KISAN'),
+    ('pmkisan', 'PM-KISAN'),
+    ('kisan samman nidhi', 'PM-KISAN'),
+    ('pradhan mantri kisan samman nidhi', 'PM-KISAN'),
+    ('pm-sby', 'PM-SBY'),
+    ('pm sby', 'PM-SBY'),
+    ('pmsby', 'PM-SBY'),
+    ('pradhan mantri suraksha bima', 'PM-SBY'),
+    ('suraksha bima yojana', 'PM-SBY'),
+    ('ಪಿಎಂ-ಕಿಸಾನ್', 'PM-KISAN'),
+    ('ಪಿಎಂ ಕಿಸಾನ್', 'PM-KISAN'),
+    ('ಪಿಎಂಕಿಸಾನ್', 'PM-KISAN'),
+    ('पीएम-किसान', 'PM-KISAN'),
+    ('पीएम किसान', 'PM-KISAN'),
+    ('udyogini scheme', 'Udyogini'),
+    ('udyogini yojana', 'Udyogini'),
+    ('udyogini yojane', 'Udyogini'),
+    ('udyogini', 'Udyogini'),
+    ('ಉದ್ಯೋಗಿನಿ ಯೋಜನೆ', 'Udyogini'),
+    ('ಉದ್ಯೋಗಿನಿ', 'Udyogini'),
+    ('उद्योगिनी योजना', 'Udyogini'),
+    ('उद्योगिनी', 'Udyogini'),
+    ('pmfby', 'PMFBY'),
+    ('pradhan mantri fasal bima', 'PMFBY'),
+    ('fasal bima', 'PMFBY'),
+    ('gruha lakshmi', 'Gruha Lakshmi'),
+    ('guruha lakshmi', 'Gruha Lakshmi'),
+    ('ಗೃಹ ಲಕ್ಷ್ಮೀ', 'Gruha Lakshmi'),
+    ('ಗೃಹ ಲಕ್ಷ್ಮಿ', 'Gruha Lakshmi'),
+    ('गृह लक्ष्मी', 'Gruha Lakshmi'),
+    ('gruha jyoti', 'Gruha Jyoti'),
+    ('gruha jyothi', 'Gruha Jyoti'),
+    ('guruha jyoti', 'Gruha Jyoti'),
+    ('guruha jyothi', 'Gruha Jyoti'),
+    ('ಗೃಹ ಜ್ಯೋತಿ', 'Gruha Jyoti'),
+    ('ayushman bharat', 'Ayushman Bharat PM-JAY'),
+    ('pm-jay', 'Ayushman Bharat PM-JAY'),
+    ('pmjay', 'Ayushman Bharat PM-JAY'),
+    ('ಆಯುಷ್ಮಾನ್', 'Ayushman Bharat PM-JAY'),
+    ('आयुष्मान', 'Ayushman Bharat PM-JAY'),
+    ('mgnrega', 'MGNREGA'),
+    ('nrega', 'MGNREGA'),
+    ('shakti scheme', 'Shakti'),
+    ('shakti yojana', 'Shakti'),
+    ('shakti', 'Shakti'),
+    ('ಶಕ್ತಿ ಯೋಜನೆ', 'Shakti'),
+    ('ಶಕ್ತಿ', 'Shakti'),
+    ('शक्ति योजना', 'Shakti'),
+    ('शक्ति', 'Shakti'),
 )
 
 _FOLLOWUP_HINTS = re.compile(
+    r"("
     r"\b("
     r"who|what|when|where|how|which|"
     r"eligible|eligibility|benefit|benefits|document|documents|"
     r"apply|application|required|requirement|penalty|penalties|"
     r"amount|installment|criteria|procedure|process|"
-    r"this|that|it|these|those|the scheme|this scheme|that scheme"
+    r"this|that|it|these|those|the scheme|this scheme|that scheme|"
+    r"more|details|elaborate"
+    r")\b|"
+    r"ಅರ್ಹ|ಪ್ರಯೋಜನ|ಅರ್ಜಿ|ದಾಖಲೆ|ಅದಕ್ಕೆ|ಅದರ|ಯಾರು|ಏನು|"
+    r"ಇನ್ನಷ್ಟು|ಹೇಳಿ|ಹೆಚ್ಚು|ಬಗ್ಗೆ|"
+    r"पात्र|लाभ|आवेदन|दस्तावेज|उसके|इसके|कौन|क्या|और बता"
+    r")",
+    re.IGNORECASE,
+)
+
+# New-topic phrasing without a scheme name must NOT inherit prior scheme.
+_NEW_TOPIC_OPENER = re.compile(
+    r"^\s*("
+    r"tell me about|tell me|explain|describe|information (on|about)|"
+    r"what (is|are)|who (is|are)|"
+    r".{0,40}\b(bagge heli|bagge helu|ke bare mein|के बारे में)"
     r")\b",
     re.IGNORECASE,
 )
@@ -59,10 +116,18 @@ def _normalize(text: str) -> str:
 
 def extract_scheme_mentions(text: str) -> List[str]:
     """Return canonical scheme names mentioned in text (order preserved)."""
-    lowered = (text or "").lower()
+    raw = text or ""
+    lowered = raw.lower()
+    # Apply light STT spelling fixes so "Guruha Jyoti" counts as a scheme.
+    try:
+        from app.services.multilingual_retrieval_service import normalize_stt_artifacts
+
+        lowered = normalize_stt_artifacts(raw).lower()
+    except Exception:
+        pass
     found: List[str] = []
-    for alias, canonical in _SCHEME_ALIASES:
-        if alias in lowered and canonical not in found:
+    for alias, canonical in sorted(_SCHEME_ALIASES, key=lambda x: -len(x[0])):
+        if (alias in lowered or alias in raw) and canonical not in found:
             found.append(canonical)
     return found
 
@@ -74,16 +139,57 @@ def history_active_scheme(history: Sequence[Dict[str, Any]]) -> Optional[str]:
         content = turn.get("content") or ""
         mentions = extract_scheme_mentions(content)
         if mentions:
-            # Prefer user-stated schemes
-            if role == "user":
-                return mentions[0]
             return mentions[0]
+        if role == "user" and not mentions:
+            if is_standalone_query(content):
+                try:
+                    from app.services.myscheme_service import requested_scheme_identity
+
+                    ident = requested_scheme_identity(content)
+                    name = (ident or {}).get("scheme_name") or ""
+                    if name:
+                        return name
+                except Exception:
+                    pass
+                return None
+            if not _looks_like_followup(content):
+                return None
     return None
 
 
+_SCHEME_WORD = re.compile(
+    r"(?:\b(?:scheme|yojana|yojane|yojna)\b|ಯೋಜನೆ|योजना)",
+    re.IGNORECASE,
+)
+_STANDALONE_STRIP = re.compile(
+    r"\b("
+    r"scheme|yojana|yojane|yojna|details|about|tell me|information|info|"
+    r"the|a|an|of|for|to|please|can i get|complete|full|more"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
 def is_standalone_query(query: str) -> bool:
-    """True when the query already names a clear scheme/entity."""
-    return bool(extract_scheme_mentions(query))
+    """True when the query already names a clear scheme/entity.
+
+    Known catalog aliases AND explicit named schemes (e.g. KSCSTE Emeritus
+    Scientist Scheme) must override previous conversation scheme context.
+    Pronoun follow-ups ('this scheme') still inherit.
+    """
+    if extract_scheme_mentions(query):
+        return True
+    q = _normalize(query)
+    if not q:
+        return False
+    if _PRONOUN_SCHEME.search(q):
+        return False
+    if _SCHEME_WORD.search(q):
+        rest = _STANDALONE_STRIP.sub(" ", q)
+        rest = re.sub(r"\s+", " ", rest).strip(" ?!.,;:")
+        if len(rest) >= 4:
+            return True
+    return False
 
 
 def _looks_like_followup(query: str) -> bool:
@@ -92,10 +198,22 @@ def _looks_like_followup(query: str) -> bool:
         return False
     if is_standalone_query(q):
         return False
+    # "Tell me about farming…" is a new topic, not a PM-KISAN follow-up.
+    if _NEW_TOPIC_OPENER.search(q) and not _PRONOUN_SCHEME.search(q):
+        # Still allow classic short follow-ups: "What are the benefits?"
+        lower = q.lower()
+        if re.search(
+            r"\b(benefit|benefits|eligible|eligibility|document|documents|"
+            r"apply|application|amount|installment|criteria|more|details|"
+            r"this scheme|that scheme|the scheme)\b",
+            lower,
+        ) or re.search(r"ಅರ್ಹ|ಪ್ರಯೋಜನ|ದಾಖಲೆ|ಅದಕ್ಕೆ|ಇನ್ನಷ್ಟು|पात्र|लाभ|उसके|इसके", q):
+            return True
+        return False
     if _FOLLOWUP_HINTS.search(q):
         return True
-    # Short questions without a scheme are usually follow-ups in context
-    return len(q.split()) <= 8
+    # Do NOT treat every short utterance as a follow-up (topic-shift bug).
+    return False
 
 
 def _heuristic_rewrite(
@@ -109,7 +227,14 @@ def _heuristic_rewrite(
     if is_standalone_query(original):
         return original
 
+    # New scheme / topic named (incl. STT Latin forms) — never force prior scheme.
+    current_schemes = extract_scheme_mentions(original)
     scheme = history_active_scheme(conversation_history)
+    if current_schemes and scheme and current_schemes[0] != scheme:
+        return original
+    if current_schemes:
+        return original
+
     if not scheme:
         return original
 
@@ -124,22 +249,41 @@ def _heuristic_rewrite(
     if scheme.lower() in original.lower():
         return original
 
-    # Natural phrasing for common intents
+    # Natural phrasing for common intents (EN + KN/HI → English retrieval form)
     lower = original.lower().rstrip("?")
-    if re.search(r"\bwho is eligible\b", lower):
+    if (
+        re.search(r"\bwho is eligible\b", lower)
+        or "ಅರ್ಹ" in original
+        or "पात्र" in original
+        or "ಯಾರು ಅರ್ಹ" in original
+    ):
         return f"Who is eligible for {scheme}?"
-    if re.search(r"\beligibility\b", lower) and "for " not in lower:
+    if (re.search(r"\beligibility\b", lower) and "for " not in lower) or "ಅರ್ಹತೆ" in original:
         return f"What is the eligibility for {scheme}?"
-    if re.search(r"\b(what are the )?benefits\b", lower):
+    if (
+        re.search(r"\b(what are the )?benefits\b", lower)
+        or "ಪ್ರಯೋಜನ" in original
+        or "लाभ" in original
+    ):
         return f"What are the benefits of {scheme}?"
-    if re.search(r"\b(what )?documents?\b", lower) or re.search(
-        r"\bdocuments? (are )?(needed|required)\b", lower
+    if (
+        re.search(r"\b(what )?documents?\b", lower)
+        or re.search(r"\bdocuments? (are )?(needed|required)\b", lower)
+        or "ದಾಖಲೆ" in original
+        or "दस्तावेज" in original
+        or "दस्तावेज़" in original
     ):
         return f"What documents are needed for {scheme}?"
-    if re.search(r"\bhow (do i|to) apply\b", lower):
+    if (
+        re.search(r"\bhow (do i|to) apply\b", lower)
+        or "ಅರ್ಜಿ" in original
+        or "आवेदन" in original
+    ):
         return f"How do I apply for {scheme}?"
 
-    # Generic: append scheme context
+    # Generic: append scheme context (English retrieval-friendly for hybrid index)
+    if any(ord(c) > 127 for c in original):
+        return f"{scheme} {original}"
     if original.endswith("?"):
         return f"{original[:-1].rstrip()} for {scheme}?"
     return f"{original} for {scheme}"
@@ -252,7 +396,7 @@ def rewrite_query(
             "rewritten_query": original,
             "was_rewritten": False,
             "method": "passthrough",
-            "active_scheme": mentions[0] if mentions else scheme,
+            "active_scheme": mentions[0] if mentions else None,
         }
 
     try:

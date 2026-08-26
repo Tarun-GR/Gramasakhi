@@ -1,29 +1,32 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+import logging
 import os
 import json
 import sys
 import threading
 import urllib.request
 
+from sqlalchemy.exc import SQLAlchemyError
+
 from app.core.config import settings
 from app.database.session import engine, Base
-from app.api.endpoints import auth, super_admin, chat
+from app.api.endpoints import auth, super_admin, chat, voice, ivr
 
 # Import active GramSakhi models so Base recognizes them before table creation
-from app.models import family_account, user, rag, audit, conversation  # noqa: F401
+from app.models import citizen_account, user, rag, audit, conversation  # noqa: F401
 
 # Ensure static directory exists
 os.makedirs("static/uploads", exist_ok=True)
 
 # Automatically create missing database tables on startup
-if "pytest" not in sys.modules:
-    _db_host = (
-        settings.DATABASE_URL.split("@", 1)[1]
-        if "@" in settings.DATABASE_URL
-        else settings.DATABASE_URL
-    )
+if "pytest" not in sys.modules and "unittest" not in sys.modules:
+    if settings.DATABASE_URL.startswith("sqlite"):
+        _db_host = settings.DATABASE_URL
+    else:
+        _db_host = "redacted"
     print(f"Database: {engine.dialect.name} -> {_db_host}", flush=True)
     if engine.dialect.name != "postgresql":
         print(
@@ -31,13 +34,64 @@ if "pytest" not in sys.modules:
             "and restart after killing any old uvicorn processes.",
             flush=True,
         )
-    Base.metadata.create_all(bind=engine)
+    try:
+        Base.metadata.create_all(bind=engine)
+    except Exception as e:
+        print(
+            f"WARNING: Database schema create_all failed ({type(e).__name__}). "
+            "API will start; /health/db will report the error. Check network/DNS for Supabase.",
+            flush=True,
+        )
     try:
         from app.database.migrations.run_migrations import ensure_sqlite_columns
 
         ensure_sqlite_columns(engine)
     except Exception as e:
         print(f"Schema ensure skipped: {e}", flush=True)
+
+
+_DEFAULT_SECRET_KEY = "gramsakhi_very_secret_key_change_me_in_production"
+
+
+def _guard_production_config() -> None:
+    """Refuse to start with known-insecure JWT secret on Postgres (non-test)."""
+    if any(name in sys.modules for name in ("pytest", "unittest")):
+        return
+    if settings.SECRET_KEY != _DEFAULT_SECRET_KEY:
+        return
+    if settings.DATABASE_URL.startswith("sqlite"):
+        print(
+            "WARNING: Using default SECRET_KEY with SQLite. "
+            "Set SECRET_KEY in backend/.env before production deployment.",
+            flush=True,
+        )
+        return
+    print(
+        "FATAL: SECRET_KEY is still the default while DATABASE_URL points to PostgreSQL. "
+        "Set a unique SECRET_KEY in backend/.env.",
+        flush=True,
+    )
+    sys.exit(1)
+
+
+_guard_production_config()
+
+
+def _guard_ivr_production_config() -> None:
+    if any(name in sys.modules for name in ("pytest", "unittest")):
+        return
+    if settings.APP_ENV.strip().lower() != "production":
+        return
+    from app.services.ivr.ivr_config import collect_ivr_production_config_errors
+
+    errors = collect_ivr_production_config_errors(settings)
+    if not errors:
+        return
+    print(f"FATAL: IVR production configuration invalid: {'; '.join(errors)}", flush=True)
+    sys.exit(1)
+
+
+_guard_ivr_production_config()
 
 
 def _check_ollama_connection() -> bool:
@@ -56,33 +110,56 @@ def _check_ollama_connection() -> bool:
         return False
 
 
+# Swagger UI / OpenAPI are development aids; production must not expose the
+# full API surface description.
+_IS_PRODUCTION_ENV = settings.APP_ENV.strip().lower() == "production"
+
 app = FastAPI(
     title=settings.PROJECT_NAME,
-    openapi_url=f"{settings.API_V1_STR}/openapi.json",
+    openapi_url=None if _IS_PRODUCTION_ENV else f"{settings.API_V1_STR}/openapi.json",
+    docs_url=None if _IS_PRODUCTION_ENV else "/docs",
+    redoc_url=None if _IS_PRODUCTION_ENV else "/redoc",
 )
+
+_api_logger = logging.getLogger("gramsakhi.api")
+
+
+@app.exception_handler(SQLAlchemyError)
+async def sqlalchemy_exception_handler(_request: Request, exc: SQLAlchemyError):
+    _api_logger.warning("database_error err=%s", type(exc).__name__)
+    return JSONResponse(
+        status_code=503,
+        content={"detail": "Service temporarily unavailable. Please try again."},
+    )
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(_request: Request, exc: Exception):
+    if isinstance(exc, HTTPException):
+        return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+    _api_logger.exception("unhandled_api_error err=%s", type(exc).__name__)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "An unexpected error occurred. Please try again."},
+    )
+
+@app.middleware("http")
+async def security_headers_middleware(request: Request, call_next):
+    response = await call_next(request)
+    if settings.SECURITY_HEADERS_ENABLED:
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+        response.headers.setdefault(
+            "Permissions-Policy",
+            "camera=(), microphone=(self), geolocation=()",
+        )
+    return response
+
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://localhost:5174",
-        "http://127.0.0.1:5174",
-        "http://localhost:5175",
-        "http://127.0.0.1:5175",
-        "http://localhost:5176",
-        "http://127.0.0.1:5176",
-        "http://localhost:5177",
-        "http://127.0.0.1:5177",
-        "http://localhost:5178",
-        "http://127.0.0.1:5178",
-        "http://localhost:5179",
-        "http://127.0.0.1:5179",
-        "http://localhost:5180",
-        "http://127.0.0.1:5180",
-    ],
+    allow_origins=list(settings.BACKEND_CORS_ORIGINS or []),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -105,6 +182,18 @@ def _warm_reranker() -> None:
 
 @app.on_event("startup")
 async def startup_event():
+    if "unittest" in sys.modules or "pytest" in sys.modules:
+        return
+    # Safe config summary (never print secrets)
+    print(
+        f"Config: Database={'PostgreSQL' if engine.dialect.name == 'postgresql' else engine.dialect.name}; "
+        f"Supabase={'configured' if settings.SUPABASE_URL else 'missing'}; "
+        f"Storage={'configured' if settings.SUPABASE_SERVICE_ROLE_KEY else 'missing'}; "
+        f"Ollama={'configured'}; "
+        f"Embed={settings.EMBEDDING_MODEL}/{settings.EMBEDDING_DIMENSIONS}; "
+        f"LLM={settings.OLLAMA_LLM_MODEL or settings.OLLAMA_MODEL}",
+        flush=True,
+    )
     _check_ollama_connection()
     try:
         from app.background_jobs.web_ingest_scheduler import start_web_ingest_scheduler_if_enabled
@@ -120,7 +209,23 @@ async def startup_event():
 app.mount("/static", StaticFiles(directory="static"), name="static")
 app.include_router(auth.router, prefix=f"{settings.API_V1_STR}/auth", tags=["auth"])
 app.include_router(chat.router, prefix=f"{settings.API_V1_STR}/chat", tags=["chat"])
+app.include_router(voice.router, prefix=f"{settings.API_V1_STR}/chat", tags=["voice"])
+app.include_router(ivr.router, prefix=f"{settings.API_V1_STR}/ivr", tags=["ivr"])
 app.include_router(super_admin.router, prefix="/api/v1/super-admin", tags=["admin"])
+
+
+@app.get("/health/stt")
+def health_stt_root():
+    from app.services.voice.stt_service import get_stt_health
+
+    return get_stt_health()
+
+
+@app.get("/health/tts")
+def health_tts_root():
+    from app.services.voice.tts_service import get_tts_health
+
+    return get_tts_health()
 
 
 @app.get("/")
@@ -144,11 +249,10 @@ def db_health():
 
     url = settings.DATABASE_URL
     dialect = engine.dialect.name
-    host = "sqlite"
-    if "@" in url:
-        host = url.split("@", 1)[1]
-    elif url.startswith("sqlite"):
+    if url.startswith("sqlite"):
         host = url
+    else:
+        host = "redacted"
 
     ok = False
     detail = None
@@ -157,15 +261,19 @@ def db_health():
             conn.execute(text("SELECT 1"))
             ok = True
     except Exception as e:  # noqa: BLE001
-        detail = f"{type(e).__name__}: {e}"
+        detail = "connection_failed"
+        _api_logger.warning("health_db_failed err=%s", type(e).__name__)
 
-    return {
-        "ok": ok,
-        "dialect": dialect,
-        "using_supabase_postgres": dialect == "postgresql" and "supabase.co" in url,
-        "host": host,
-        "detail": detail,
-    }
+    return JSONResponse(
+        status_code=200 if ok else 503,
+        content={
+            "ok": ok,
+            "dialect": dialect,
+            "using_supabase_postgres": dialect == "postgresql" and "supabase.co" in url,
+            "host": host,
+            "detail": detail,
+        },
+    )
 
 
 @app.get("/health/ollama")
@@ -177,10 +285,11 @@ def ollama_health():
 
         llm_status = check_ollama_llm()
     except Exception as e:  # noqa: BLE001
+        _api_logger.warning("health_ollama_failed err=%s", type(e).__name__)
         llm_status = {
             "ollama_available": False,
             "model_available": False,
-            "detail": f"{type(e).__name__}: {e}",
+            "detail": "check_failed",
         }
     return {
         "ollama_reachable": reachable,
@@ -197,3 +306,13 @@ def supabase_health():
     from app.services.storage import check_supabase_connection
 
     return check_supabase_connection()
+
+
+@app.get("/health/system")
+def system_health():
+    """Unified pre-demo / ops system check (no secrets)."""
+    from app.services.system_check import format_system_check_text, run_system_check
+
+    report = run_system_check()
+    report["summary_text"] = format_system_check_text(report)
+    return report

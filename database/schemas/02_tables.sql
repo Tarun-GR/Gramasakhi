@@ -1,3 +1,5 @@
+-- HISTORICAL: Sahyog 1.0 table schemas (not used by the GramSakhi runtime).
+-- See docs/LEGACY_COMPATIBILITY.md.
 -- Sahyog 1.0 Table Schemas
 -- Author: Principal Database Architect
 -- Purpose: Defines the 27 relational tables with precise datatype settings, constraints, and cascading rules.

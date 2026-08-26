@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html>
+<head><title>Dynamic Download</title></head>
+<body>
+  <h1>Download Guidelines</h1>
+  <p>Click download to obtain the official eligibility PDF.</p>
+  <button id="dl">Download PDF</button>
+  <script>
+    document.getElementById("dl").onclick = function () {
+      // Simulated dynamic URL generation (fixture only)
+      window.__generated = "https://nha.gov.in/img/resources/dynamic-eligibility.pdf";
+      var a = document.createElement("a");
+      a.href = window.__generated;
+      a.textContent = "Generated PDF Link";
+      document.body.appendChild(a);
+    };
+  </script>
+</body>
+</html>

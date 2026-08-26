@@ -20,7 +20,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.core.config import settings
 from app.database.session import Base
-from app.models import audit, conversation, family_account, rag, user  # noqa: F401
+from app.models import audit, conversation, citizen_account, rag, user  # noqa: F401
 from app.models.rag import DocumentChunk, RagDocument
 from app.services import rag as rag_service
 from app.services.evidence_validator import EvidenceValidator
@@ -36,7 +36,9 @@ from app.services.web_ingestion_service import compute_hash
 
 
 DIM = 32
-FIXTURE_URL = "https://pmkisan.gov.in/guidelines/pm-kisan-eligibility.txt"
+FIXTURE_URL = (
+    "https://pmkisan.gov.in/guidelines/pm-kisan-eligible-benefits-documents.txt"
+)
 FIXTURE_TEXT = (
     "Pradhan Mantri Kisan Samman Nidhi (PM-KISAN) operational guidelines. "
     "Eligibility: All landholding farmer families who own cultivable land "

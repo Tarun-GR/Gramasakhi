@@ -1,3 +1,4 @@
+# HISTORICAL: Sahyog 1.0 Alembic ordering (not used by the GramSakhi runtime). See docs/LEGACY_COMPATIBILITY.md.
 # Sahyog 1.0 Alembic Migration Ordering Plan
 -- Author: Principal Database Architect
 -- Purpose: Documentation of structural table dependencies to avoid constraint violations during migration runs.

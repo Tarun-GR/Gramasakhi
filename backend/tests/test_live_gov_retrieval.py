@@ -146,8 +146,12 @@ class TestLiveFallbackGate(unittest.TestCase):
                     )
                     live_mock.assert_called_once()
                     self.assertFalse(out["llm_invoked"])
-                    self.assertEqual(out["answer"], NO_VERIFIED_INFORMATION)
+                    # Citizen UX: specific failure explanation (not a hallucinated answer)
                     self.assertFalse(out["validated"])
+                    self.assertIn("live_status", out)
+                    self.assertTrue(out.get("answer"))
+                    self.assertNotIn("does not exist", (out.get("answer") or "").lower())
+                    self.assertEqual(out.get("knowledge_source"), "none")
 
     def test_live_disabled_keeps_legacy_fallback(self):
         docs = [{"content": "noise", "scheme_name": "X", "similarity_score": 0.1}]
@@ -258,6 +262,34 @@ class TestLiveServiceIngest(unittest.TestCase):
                 push.assert_called_once()
                 self.assertEqual(out["status"], "ok")
                 self.assertEqual(push.call_args.kwargs.get("ingestion_type"), "live_web")
+
+    def test_myscheme_pdf_url_not_rewritten_to_scheme_page(self):
+        db = MagicMock()
+        svc = LiveGovRetrievalService(db)
+        pdf_bytes = b"%PDF-1.4 udyogini guidelines"
+        pdf_url = "https://www.myscheme.gov.in/sites/default/files/udyogini.pdf"
+        with patch.object(svc, "_find_by_hash", return_value=None):
+            with patch.object(
+                svc.web,
+                "_push_to_pipeline",
+                return_value={"status": "ok", "document_id": "doc-pdf", "source_url": pdf_url},
+            ) as push:
+                out = svc.ingest_verified_document(
+                    url=pdf_url,
+                    content=pdf_bytes,
+                    content_type="application/pdf",
+                    scheme_name="Udyogini Scheme",
+                    ministry=None,
+                    state="Karnataka",
+                    kind="pdf",
+                    scheme_id="us",
+                )
+                push.assert_called_once()
+                self.assertEqual(out["status"], "ok")
+                self.assertEqual(push.call_args.kwargs.get("url"), pdf_url)
+                meta = push.call_args.kwargs.get("extra_metadata") or {}
+                self.assertEqual(meta.get("scheme_id"), "us")
+                self.assertEqual(meta.get("document_url"), pdf_url)
 
     def test_deduplication_skips_second_ingest(self):
         db = MagicMock()
