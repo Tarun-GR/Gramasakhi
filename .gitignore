@@ -46,6 +46,7 @@ backend/test_hybrid_indexes/
 backend/tmp_e2e_indexes/
 backend/static/uploads/
 backend/data/myscheme_discovery_cache.json
+backend/data/embedding_migrations/
 
 # Local scratch
 scratch_test.py

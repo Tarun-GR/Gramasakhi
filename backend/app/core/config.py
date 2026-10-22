@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     API_V1_STR: str = "/api"
     SECRET_KEY: str = "gramsakhi_very_secret_key_change_me_in_production"
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 days
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 days (JWT; web client keeps token in memory only)
 
     # Loaded from backend/.env — falls back to local SQLite if not set
     DATABASE_URL: str = "sqlite:///./gramsakhi.db"
@@ -34,6 +34,12 @@ class Settings(BaseSettings):
     EMBEDDING_PROVIDER: str = "ollama"
     EMBEDDING_MODEL: str = "nomic-embed-text"
     EMBEDDING_DIMENSIONS: int = 768
+    GEMINI_EMBEDDING_MODEL: str = "gemini-embedding-001"
+    GEMINI_EMBEDDING_TIMEOUT_SECONDS: float = 60.0
+    GEMINI_EMBEDDING_BATCH_SIZE: int = 16
+    GEMINI_EMBEDDING_MAX_RETRIES: int = 1
+    # local | cloud — cloud forbids Ollama and requires Gemini LLM + embeddings
+    RUNTIME_PROFILE: str = "local"
     # Shared Ollama host (embeddings + legacy callers)
     OLLAMA_API_URL: str = "http://127.0.0.1:11434"
     # Phase 5 generation — prefer OLLAMA_BASE_URL; falls back to OLLAMA_API_URL in llm_service
@@ -44,6 +50,19 @@ class Settings(BaseSettings):
     OLLAMA_LLM_TEMPERATURE: float = 0.1
     OLLAMA_LLM_TIMEOUT_SECONDS: float = 60.0
     OLLAMA_LLM_NUM_PREDICT: int = 512
+
+    # LLM text generation provider: ollama | gemini (embeddings remain separate)
+    LLM_PROVIDER: str = "ollama"
+    GEMINI_API_KEY: str = ""
+    # Default targets free-tier text models per Google AI docs (verify for your account).
+    GEMINI_MODEL: str = "gemini-3.5-flash-lite"
+    GEMINI_TEMPERATURE: float = 0.1
+    GEMINI_TIMEOUT_SECONDS: float = 60.0
+    GEMINI_MAX_OUTPUT_TOKENS: int = 512
+    GEMINI_MAX_RETRIES: int = 1
+    # When LLM_PROVIDER=gemini, fall back to Ollama on transient Gemini failures.
+    LLM_FALLBACK_TO_OLLAMA: bool = True
+
     # Kannada / multilingual output quality gate (post-Evidence Validator)
     MAX_LANGUAGE_REGEN_ATTEMPTS: int = 2
     LANGUAGE_QUALITY_GATE_ENABLED: bool = True
@@ -132,6 +151,9 @@ class Settings(BaseSettings):
     AUTH_RATE_LIMIT_MAX_KEYS: int = 4096
     # Dev-only OTP console simulator (terminal output when APP_ENV is not production)
     OTP_CONSOLE_SIMULATOR_ENABLED: bool = True
+    # OTP delivery: sms (default) | dev_popup (development/FYP demo only)
+    OTP_DELIVERY_MODE: str = "sms"
+    OTP_DEV_POPUP_ENABLED: bool = False
     # Dev-only OTP retrieval endpoint (requires APP_ENV != production + secret key)
     OTP_DEV_RETRIEVAL_ENABLED: bool = False
     OTP_DEV_RETRIEVAL_KEY: str = ""

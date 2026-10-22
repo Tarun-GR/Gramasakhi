@@ -1,0 +1,30 @@
+# Render blueprint (optional) — set secrets in Render dashboard, not here.
+services:
+  - type: web
+    name: gramsakhi-api
+    runtime: python
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: RUNTIME_PROFILE
+        value: cloud
+      - key: LLM_PROVIDER
+        value: gemini
+      - key: EMBEDDING_PROVIDER
+        value: gemini
+      - key: LLM_FALLBACK_TO_OLLAMA
+        value: false
+      - key: OTP_DELIVERY_MODE
+        value: sms
+      - key: OTP_DEV_POPUP_ENABLED
+        value: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: SECRET_KEY
+        sync: false

@@ -1,4 +1,5 @@
 import axios from "axios";
+import { clearCitizenAuthMemory, getAccessToken } from "./auth-token";
 
 export const apiEvents = {
   listeners: {},
@@ -33,7 +34,7 @@ const api = axios.create({
 api.interceptors.request.use(
   (config) => {
     apiEvents.emit("loading", true);
-    const token = localStorage.getItem("accessToken");
+    const token = getAccessToken();
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
@@ -62,12 +63,9 @@ api.interceptors.response.use(
     apiEvents.emit("loading", false);
     const status = error?.response?.status;
     const url = String(error?.config?.url || "");
-    const hadToken = Boolean(localStorage.getItem("accessToken"));
+    const hadToken = Boolean(getAccessToken());
     if (status === 401 && hadToken && !url.includes("/auth/")) {
-      localStorage.removeItem("accessToken");
-      localStorage.removeItem("citizenAccountId");
-      localStorage.removeItem("familyAccountId"); // transitional key; see docs/LEGACY_COMPATIBILITY.md
-      localStorage.removeItem("citizenPhone");
+      clearCitizenAuthMemory();
       localStorage.removeItem("gramsakhiConversationId");
       sessionStorage.removeItem("gramsakhiForceNewChat");
       apiEvents.emit("auth-expired");
