@@ -4,6 +4,7 @@
 **/.env
 !.env.example
 !**/.env.example
+!**/.env.production.example
 
 # Node
 node_modules/
