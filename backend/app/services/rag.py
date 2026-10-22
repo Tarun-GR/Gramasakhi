@@ -690,9 +690,14 @@ def hybrid_retrieve(
     candidate_k = int(candidate_k if candidate_k is not None else settings.HYBRID_CANDIDATE_K)
     use_rerank = settings.HYBRID_RERANK_ENABLED if use_rerank is None else bool(use_rerank)
 
+    from app.services.index_builder import HybridIndexesNotReadyError, hybrid_disk_indexes_present
+    from app.services.runtime_profile import is_cloud_runtime
+
     builder = get_index_builder()
     if not builder.faiss.ids and not builder.bm25.ids:
-        # Auto-build once from DB if indexes are empty
+        if is_cloud_runtime() and not hybrid_disk_indexes_present(builder.index_dir):
+            raise HybridIndexesNotReadyError("hybrid indexes missing on disk (cloud)")
+        # Local / disk-backed: build once from DB embeddings
         builder.build_all(db)
         from app.services.index_builder import set_index_builder
 
@@ -1016,28 +1021,79 @@ def answer_with_evidence_gate(
 
     docs: List[Dict[str, Any]] = []
     retrieval_error: Optional[str] = None
+    retrieval_path = "none"
     if q:
-        try:
-            docs = multi_query_hybrid_retrieve(
-                db, ml_plan, top_k=top_k, use_rerank=use_rerank
-            )
-        except Exception as e:  # noqa: BLE001
-            logger.warning("multi_query_hybrid_retrieve failed: %s", type(e).__name__)
+        import time
+
+        from app.services.chat_pipeline import ensure_budget
+        from app.services.index_builder import HybridIndexesNotReadyError, hybrid_disk_indexes_present
+        from app.services.runtime_profile import is_cloud_runtime
+
+        t_ret = time.perf_counter()
+        use_pgvector_first = is_cloud_runtime() and not hybrid_disk_indexes_present()
+        if use_pgvector_first:
             try:
-                docs = hybrid_retrieve(db, q, top_k=top_k, use_rerank=use_rerank)
-            except Exception as e2:  # noqa: BLE001
-                logger.warning("hybrid_retrieve failed: %s", type(e2).__name__)
+                ensure_budget(20.0)
+                docs = _pgvector_retrieve(
+                    db, validation_query or q, limit=int(top_k or settings.HYBRID_TOP_K)
+                )
+                retrieval_path = "pgvector_cloud"
+            except Exception as e:  # noqa: BLE001
+                retrieval_error = type(e).__name__
+                logger.warning("pgvector retrieve failed: %s", retrieval_error)
+                docs = []
+        if not docs:
+            try:
+                ensure_budget(15.0)
+                docs = multi_query_hybrid_retrieve(
+                    db, ml_plan, top_k=top_k, use_rerank=use_rerank
+                )
+                retrieval_path = "hybrid"
+            except HybridIndexesNotReadyError:
+                retrieval_path = "hybrid_missing_disk"
                 try:
                     docs = _pgvector_retrieve(
                         db, validation_query or q, limit=int(top_k or settings.HYBRID_TOP_K)
                     )
+                    retrieval_path = "pgvector_fallback"
                 except Exception as e3:  # noqa: BLE001
                     retrieval_error = type(e3).__name__
-                    logger.warning(
-                        "all retrieval paths failed (last=%s) — check Ollama/embeddings",
-                        retrieval_error,
-                    )
                     docs = []
+            except Exception as e:  # noqa: BLE001
+                logger.warning("multi_query_hybrid_retrieve failed: %s", type(e).__name__)
+                try:
+                    docs = hybrid_retrieve(db, q, top_k=top_k, use_rerank=use_rerank)
+                    retrieval_path = "hybrid_direct"
+                except HybridIndexesNotReadyError:
+                    try:
+                        docs = _pgvector_retrieve(
+                            db, validation_query or q, limit=int(top_k or settings.HYBRID_TOP_K)
+                        )
+                        retrieval_path = "pgvector_fallback"
+                    except Exception as e3:  # noqa: BLE001
+                        retrieval_error = type(e3).__name__
+                        docs = []
+                except Exception as e2:  # noqa: BLE001
+                    logger.warning("hybrid_retrieve failed: %s", type(e2).__name__)
+                    try:
+                        docs = _pgvector_retrieve(
+                            db, validation_query or q, limit=int(top_k or settings.HYBRID_TOP_K)
+                        )
+                        retrieval_path = "pgvector_fallback"
+                    except Exception as e3:  # noqa: BLE001
+                        retrieval_error = type(e3).__name__
+                        logger.warning(
+                            "all retrieval paths failed (last=%s)",
+                            retrieval_error,
+                        )
+                        docs = []
+        logger.info(
+            "chat_retrieval path=%s hits=%s ms=%s err=%s",
+            retrieval_path,
+            len(docs),
+            int((time.perf_counter() - t_ret) * 1000),
+            retrieval_error or "-",
+        )
 
     # Final wrong-scheme hard gate before Evidence Validator / Ollama.
     try:
@@ -1169,6 +1225,23 @@ def answer_with_evidence_gate(
     if not result.ok:
         # Indexed evidence insufficient — optional live government fallback
         if enable_live_fallback and settings.LIVE_GOV_FALLBACK_ENABLED and q:
+            from app.services.chat_pipeline import ChatPipelineTimeout, ensure_budget
+
+            try:
+                ensure_budget(18.0)
+            except ChatPipelineTimeout:
+                logger.info("chat_live_skipped reason=budget_exhausted validator=%s", result.reason)
+                return {
+                    "answer": safe_fallback_answer(response_language),
+                    "confidence": "low",
+                    "reason": "chat_budget_exceeded",
+                    "signals": result.signals,
+                    "sources": strip_private_fields(docs),
+                    "validated": False,
+                    "llm_invoked": False,
+                    "knowledge_source": "none",
+                    "response_language": response_language,
+                }
             try:
                 from app.services.live_gov_retrieval_service import (
                     LIVE_EVIDENCE_INSUFFICIENT,

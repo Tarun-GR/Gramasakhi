@@ -20,6 +20,19 @@ from app.services.faiss_index import FaissIndex
 logger = logging.getLogger("gramsakhi.index_builder")
 
 
+class HybridIndexesNotReadyError(RuntimeError):
+    """Hybrid FAISS/BM25 indexes are not on disk (cloud must not rebuild synchronously on chat)."""
+
+
+def hybrid_disk_indexes_present(index_dir: Optional[Path] = None) -> bool:
+    """True when persisted FAISS + BM25 files exist (Render persistent disk or local dev)."""
+    idx = Path(index_dir or default_index_dir())
+    faiss_idx = idx / "faiss.index"
+    faiss_ids = idx / "faiss_ids.json"
+    bm25 = idx / "bm25_model.pkl"
+    return faiss_idx.is_file() and faiss_ids.is_file() and bm25.is_file()
+
+
 def default_index_dir() -> Path:
     """Resolve hybrid index dir relative to backend/ when not absolute (CWD-safe)."""
     raw = getattr(settings, "HYBRID_INDEX_DIR", "indexes") or "indexes"

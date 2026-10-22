@@ -27,8 +27,18 @@ function friendlyError(err) {
   if (status === 401) return "Please sign in again to continue.";
   if (status === 429) return "Too many requests. Please wait a moment and try again.";
   if (status === 503) return "GramSakhi is temporarily unavailable. Please try again.";
-  if (err?.code === "ECONNABORTED") {
-    return "The request took too long. Please try again.";
+  if (status === 504) {
+    return "The server timed out while answering. Try a shorter question or wait a moment.";
+  }
+  if (status === 502) {
+    return "The server gateway timed out (often a slow first answer). Please try again once.";
+  }
+  const aborted = err?.code === "ECONNABORTED" || err?.code === "ETIMEDOUT";
+  if (aborted && !status) {
+    return "This device stopped waiting before the server finished. Please try again.";
+  }
+  if (aborted) {
+    return "The request took too long on your device. Please try again.";
   }
   if (status >= 500) return "The server hit an error while answering. Please try once more.";
   return "GramSakhi could not complete your request. Please check your connection and try again.";

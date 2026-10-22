@@ -2162,7 +2162,9 @@ class LiveGovRetrievalService:
         started = time.perf_counter()
         # Absolute wall-clock deadlines — acquire/discover compare with time.time().
         wall_start = time.time()
-        overall_budget = float(settings.LIVE_GOV_OVERALL_TIMEOUT_SECONDS)
+        from app.services.chat_pipeline import live_gov_effective_overall_seconds
+
+        overall_budget = live_gov_effective_overall_seconds()
         overall_deadline = wall_start + overall_budget
         per_source = float(getattr(settings, "LIVE_GOV_TIMEOUT_SECONDS", 25.0))
 

@@ -69,6 +69,8 @@ For **FYP review**, enable allowlisted demo login on the backend only: [FYP_DEMO
 
 Local developers: [LOCAL_OTP_TESTING.md](../backend/docs/LOCAL_OTP_TESTING.md).
 
+Chat timeouts on Render: [CLOUD_CHAT.md](../backend/docs/CLOUD_CHAT.md).
+
 ## Verification checklist (manual)
 
 - [ ] `GET https://gramasakhi.onrender.com/health` returns 200

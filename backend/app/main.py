@@ -226,6 +226,28 @@ async def unhandled_exception_handler(_request: Request, exc: Exception):
     )
 
 @app.middleware("http")
+async def chat_access_log_middleware(request: Request, call_next):
+    import time
+
+    path = request.url.path or ""
+    method = (request.method or "").upper()
+    is_chat = path.rstrip("/") == f"{settings.API_V1_STR}/chat" and method == "POST"
+    started = time.perf_counter()
+    if is_chat:
+        _api_logger.info("chat_http_start method=POST path=%s", path)
+    response = await call_next(request)
+    if is_chat:
+        ms = int((time.perf_counter() - started) * 1000)
+        _api_logger.info(
+            "chat_http_end method=POST path=%s status=%s duration_ms=%s",
+            path,
+            response.status_code,
+            ms,
+        )
+    return response
+
+
+@app.middleware("http")
 async def security_headers_middleware(request: Request, call_next):
     response = await call_next(request)
     if settings.SECURITY_HEADERS_ENABLED:

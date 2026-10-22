@@ -421,6 +421,7 @@ def handle_citizen_chat(
     stt_language: Optional[str] = None,
     input_mode: Optional[str] = None,
     voice_request_id: Optional[str] = None,
+    chat_timer: Any = None,
 ) -> Dict[str, Any]:
     """
     Full Phase 6 turn (+ Phase 7 voice metadata):
@@ -633,6 +634,8 @@ def handle_citizen_chat(
     db.commit()
     db.refresh(conv)
     db.refresh(user_msg)
+    if chat_timer is not None:
+        chat_timer.mark("user_persisted", conversation_id=str(conv.id)[:8])
 
     from app.services.citizen_assistance import CitizenIntent
     from app.services.assistance_continuity import (
@@ -771,6 +774,8 @@ def handle_citizen_chat(
                 rewrite_was_applied=bool(rewrite.get("was_rewritten")),
             ):
                 retrieval_query = assistance.normalized_query
+        if chat_timer is not None:
+            chat_timer.mark("rag_start")
         rag_result = rag_service.answer_with_evidence_gate(
             db,
             retrieval_query,
@@ -782,6 +787,12 @@ def handle_citizen_chat(
             strict_language_mode=lang_decision.strict_language_mode,
             assistance_context=assistance,
         )
+        if chat_timer is not None:
+            chat_timer.mark(
+                "rag_done",
+                validated=bool(rag_result.get("validated")),
+                source=rag_result.get("knowledge_source"),
+            )
     from app.services.evidence_validator import SAFE_FALLBACK_ANSWER, safe_fallback_answer
 
     answer = rag_result.get("answer") or safe_fallback_answer(response_language)

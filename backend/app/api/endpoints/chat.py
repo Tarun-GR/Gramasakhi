@@ -227,7 +227,25 @@ def citizen_chat(
 
     Retrieval uses the rewritten query; the stored/displayed message is original.
     """
+    import time
+
+    from app.services.chat_pipeline import (
+        ChatPipelineTimeout,
+        ChatStageTimer,
+        chat_pipeline_budget_seconds,
+        clear_chat_request_context,
+        new_chat_request_id,
+        set_chat_request_context,
+    )
+
+    rid = new_chat_request_id()
+    budget_s = chat_pipeline_budget_seconds()
+    deadline = time.monotonic() + budget_s
+    set_chat_request_context(request_id=rid, deadline_mono=deadline)
+    timer = ChatStageTimer(rid)
+    timer.mark("auth_ok", citizen_id=str(citizen.id)[:8])
     conv_id = str(body.conversation_id) if body.conversation_id else None
+    msg_len = len((body.message or "").strip())
     try:
         result = conversation_service.handle_citizen_chat(
             db,
@@ -238,18 +256,39 @@ def citizen_chat(
             stt_language=body.stt_language,
             input_mode=body.input_mode,
             voice_request_id=body.voice_request_id,
+            chat_timer=timer,
         )
-    except HTTPException:
+        timer.mark("handler_ok", msg_len=msg_len)
+        timer.finish(status="ok", http_status=200)
+        return ChatResponse(**{k: result[k] for k in ChatResponse.model_fields if k in result})
+    except HTTPException as exc:
+        timer.mark("http_error", code=exc.status_code)
+        timer.finish(status="http_error", http_status=exc.status_code)
         raise
+    except ChatPipelineTimeout:
+        timer.mark("budget_exceeded")
+        timer.finish(status="timeout", http_status=504)
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail=(
+                "Your question is taking longer than the server allows. "
+                "Please try a shorter question or try again in a moment."
+            ),
+        )
     except SQLAlchemyError:
+        timer.mark("db_error")
+        timer.finish(status="db_error", http_status=503)
         raise
     except Exception as exc:
-        logger.exception("chat_pipeline_failed err=%s", type(exc).__name__)
+        timer.mark("error", err=type(exc).__name__)
+        timer.finish(status="error", http_status=503)
+        logger.exception("chat_pipeline_failed rid=%s err=%s", rid, type(exc).__name__)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="GramSakhi could not complete your request. Please try again.",
         ) from exc
-    return ChatResponse(**{k: result[k] for k in ChatResponse.model_fields if k in result})
+    finally:
+        clear_chat_request_context()
 
 
 @router.get("/{conversation_id}", response_model=ConversationHistoryResponse)

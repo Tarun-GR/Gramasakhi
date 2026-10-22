@@ -39,6 +39,10 @@ services:
         value: false
       - key: LIVE_GOV_BROWSER_ENABLED
         value: false
+      - key: CLOUD_LIVE_GOV_OVERALL_CAP_SECONDS
+        value: "45"
+      - key: CHAT_PIPELINE_BUDGET_SECONDS
+        value: "0"
       - key: BACKEND_CORS_ORIGINS
         value: '["https://gramasakhi-1.onrender.com","http://127.0.0.1:5173","http://localhost:5173"]'
       - key: GEMINI_API_KEY

@@ -84,6 +84,9 @@ class Settings(BaseSettings):
     LIVE_GOV_MAX_PDF_SIZE_MB: float = 10.0
     LIVE_GOV_TIMEOUT_SECONDS: float = 25.0
     LIVE_GOV_OVERALL_TIMEOUT_SECONDS: float = 240.0
+    # Chat HTTP wall-clock budget (0 = auto: ~88s cloud / 270s local). Keep cloud under Render proxy limits.
+    CHAT_PIPELINE_BUDGET_SECONDS: float = 0.0
+    CLOUD_LIVE_GOV_OVERALL_CAP_SECONDS: float = 45.0
     # Adaptive acquisition (static → browser JS)
     LIVE_GOV_BROWSER_ENABLED: bool = True
     LIVE_GOV_BROWSER_TIMEOUT_SECONDS: float = 45.0
