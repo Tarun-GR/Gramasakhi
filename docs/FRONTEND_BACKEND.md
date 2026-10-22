@@ -45,10 +45,10 @@ The Render backend must allow your browser origin in **CORS** (`BACKEND_CORS_ORI
 When the static frontend is hosted (e.g. `https://gramsakhi.example.com`), set on the **backend** service:
 
 ```env
-BACKEND_CORS_ORIGINS=["https://gramsakhi.example.com"]
+BACKEND_CORS_ORIGINS=["https://gramasakhi-1.onrender.com","http://127.0.0.1:5173"]
 ```
 
-Include localhost origins only if you still test local UI against production API. Do not use `*` with credentials.
+The backend **defaults** already include `https://gramasakhi-1.onrender.com` and local Vite origins. Set this variable only to **replace** the list (JSON array or comma-separated URLs). Do not use `*` with credentials.
 
 ## Build
 

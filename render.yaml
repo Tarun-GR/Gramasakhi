@@ -35,6 +35,8 @@ services:
         value: false
       - key: LIVE_GOV_BROWSER_ENABLED
         value: false
+      - key: BACKEND_CORS_ORIGINS
+        value: '["https://gramasakhi-1.onrender.com","http://127.0.0.1:5173","http://localhost:5173"]'
       - key: GEMINI_API_KEY
         sync: false
       - key: DATABASE_URL

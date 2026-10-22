@@ -1,7 +1,9 @@
+import json
 from pathlib import Path
-from typing import List
+from typing import Any, List
 
 from dotenv import load_dotenv
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Always load backend/.env regardless of process cwd (uvicorn reloader, tests, etc.)
@@ -203,7 +205,7 @@ class Settings(BaseSettings):
     # Spec-name alias for IVR_AUDIO_TOKEN_TTL_SECONDS; when > 0 it takes precedence.
     IVR_PUBLIC_AUDIO_TOKEN_TTL: float = 0.0
 
-    # CORS — unified GramSakhi frontend on 5173 (legacy multi-port origins kept for transition)
+    # CORS — local dev + deployed static frontend on Render (credentials enabled; no wildcard)
     BACKEND_CORS_ORIGINS: List[str] = [
         "http://127.0.0.1:5173",
         "http://localhost:5173",
@@ -213,7 +215,32 @@ class Settings(BaseSettings):
         "http://127.0.0.1:5174",
         "http://localhost:5176",
         "http://127.0.0.1:5176",
+        "https://gramasakhi-1.onrender.com",
     ]
+
+    @field_validator("BACKEND_CORS_ORIGINS", mode="before")
+    @classmethod
+    def parse_backend_cors_origins(cls, value: Any) -> Any:
+        if value is None:
+            return value
+        if isinstance(value, list):
+            return value
+        if isinstance(value, str):
+            raw = value.strip()
+            if not raw:
+                return []
+            if raw.startswith("["):
+                try:
+                    parsed = json.loads(raw)
+                except json.JSONDecodeError:
+                    return [raw]
+                if isinstance(parsed, list):
+                    return [str(x).strip() for x in parsed if str(x).strip()]
+                return [raw]
+            if "," in raw:
+                return [part.strip() for part in raw.split(",") if part.strip()]
+            return [raw]
+        return value
 
     model_config = SettingsConfigDict(
         env_file=str(_ENV_FILE),

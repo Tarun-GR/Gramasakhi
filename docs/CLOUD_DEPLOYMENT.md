@@ -34,7 +34,7 @@ EMBEDDING_DIMENSIONS=768
 OTP_DELIVERY_MODE=sms
 OTP_DEV_POPUP_ENABLED=false
 
-BACKEND_CORS_ORIGINS=https://your-frontend.example.com
+BACKEND_CORS_ORIGINS=["https://gramasakhi-1.onrender.com","http://127.0.0.1:5173"]
 ```
 
 ## Frontend environment
