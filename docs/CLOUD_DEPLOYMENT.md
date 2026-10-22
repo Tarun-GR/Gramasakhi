@@ -39,9 +39,13 @@ BACKEND_CORS_ORIGINS=https://your-frontend.example.com
 
 ## Frontend environment
 
+See also [`FRONTEND_BACKEND.md`](FRONTEND_BACKEND.md).
+
 ```env
-VITE_API_BASE_URL=https://your-backend.onrender.com
+VITE_API_BASE_URL=https://gramasakhi.onrender.com
 ```
+
+On the **backend** Render service, set `BACKEND_CORS_ORIGINS` to your static frontend origin(s), e.g. `["https://your-app.vercel.app"]`. Keep `http://127.0.0.1:5173` only if you test local UI against production API.
 
 ## Embedding migration (required once when switching off Ollama)
 

@@ -56,6 +56,8 @@ npm install
 npm run dev
 ```
 
+Copy `frontend/gramsakhi/.env.example` to `.env.local` if needed. To point the local UI at the **deployed** API, set `VITE_API_BASE_URL=https://gramasakhi.onrender.com` (see [`docs/FRONTEND_BACKEND.md`](docs/FRONTEND_BACKEND.md)).
+
 App: http://127.0.0.1:5173
 
 In Cursor, **“hey shaki”** starts API + unified frontend.
