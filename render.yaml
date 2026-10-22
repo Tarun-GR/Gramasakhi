@@ -22,6 +22,16 @@ services:
         value: sms
       - key: OTP_DEV_POPUP_ENABLED
         value: false
+      - key: OTP_CONSOLE_SIMULATOR_ENABLED
+        value: false
+      - key: IVR_PROVIDER
+        value: mock
+      - key: STARTUP_WARM_CROSS_ENCODER
+        value: false
+      - key: STT_ENABLED
+        value: false
+      - key: LIVE_GOV_BROWSER_ENABLED
+        value: false
       - key: GEMINI_API_KEY
         sync: false
       - key: DATABASE_URL

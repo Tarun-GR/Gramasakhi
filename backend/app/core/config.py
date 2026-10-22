@@ -99,6 +99,8 @@ class Settings(BaseSettings):
     HYBRID_CANDIDATE_K: int = 20
     HYBRID_TOP_K: int = 5
     HYBRID_RERANK_ENABLED: bool = True
+    # Load CrossEncoder on startup (local dev). Disable on memory-constrained hosts (e.g. Render Free).
+    STARTUP_WARM_CROSS_ENCODER: bool = True
     CROSS_ENCODER_MODEL: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
 
     # Evidence sufficiency hard gate (Phase 4)

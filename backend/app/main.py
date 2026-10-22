@@ -276,8 +276,16 @@ async def startup_event():
     except Exception as e:
         print(f"Web ingest scheduler not started: {e}", flush=True)
 
-    if settings.HYBRID_RERANK_ENABLED:
+    from app.services.runtime_profile import should_warm_cross_encoder_at_startup
+
+    if should_warm_cross_encoder_at_startup():
         threading.Thread(target=_warm_reranker, daemon=True).start()
+    elif settings.HYBRID_RERANK_ENABLED:
+        print(
+            "CrossEncoder startup warmup disabled (STARTUP_WARM_CROSS_ENCODER=false); "
+            "reranker loads on first hybrid query.",
+            flush=True,
+        )
 
 
 # Local knowledge-base files are served only via authenticated admin download.

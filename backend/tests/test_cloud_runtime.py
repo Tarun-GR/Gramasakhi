@@ -6,7 +6,12 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 from app.core.config import settings
-from app.services.runtime_profile import cloud_config_errors, is_cloud_runtime
+from app.services.ivr.ivr_config import collect_ivr_production_config_errors
+from app.services.runtime_profile import (
+    cloud_config_errors,
+    is_cloud_runtime,
+    should_warm_cross_encoder_at_startup,
+)
 
 
 class TestCloudRuntime(unittest.TestCase):
@@ -40,6 +45,39 @@ class TestCloudRuntime(unittest.TestCase):
 
                 vec = get_embeddings("PM-KISAN benefits")
         self.assertEqual(len(vec), 768)
+
+    def test_ivr_production_skipped_when_mock(self):
+        with patch.object(settings, "APP_ENV", "production"):
+            with patch.object(settings, "IVR_PROVIDER", "mock"):
+                with patch.object(settings, "IVR_PUBLIC_BASE_URL", ""):
+                    self.assertEqual(collect_ivr_production_config_errors(settings), [])
+
+    def test_ivr_production_validates_when_exotel(self):
+        fake = type(
+            "S",
+            (),
+            {
+                "APP_ENV": "production",
+                "IVR_PROVIDER": "exotel",
+                "IVR_PUBLIC_BASE_URL": "https://api.example.in",
+                "IVR_CITIZEN_ACCOUNT_ID": "id-1",
+                "IVR_SYSTEM_ACCOUNT_PHONE": "",
+                "OTP_DEV_RETRIEVAL_ENABLED": False,
+                "OTP_CONSOLE_SIMULATOR_ENABLED": False,
+                "DATABASE_URL": "postgresql://x",
+                "IVR_WEBHOOK_SHARED_SECRET": "",
+            },
+        )()
+        errors = collect_ivr_production_config_errors(fake)
+        self.assertTrue(any("IVR_WEBHOOK_SHARED_SECRET" in e for e in errors))
+
+    def test_startup_cross_encoder_warmup_disabled_flag(self):
+        with patch.object(settings, "HYBRID_RERANK_ENABLED", True):
+            with patch.object(settings, "STARTUP_WARM_CROSS_ENCODER", False):
+                self.assertFalse(should_warm_cross_encoder_at_startup())
+        with patch.object(settings, "HYBRID_RERANK_ENABLED", True):
+            with patch.object(settings, "STARTUP_WARM_CROSS_ENCODER", True):
+                self.assertTrue(should_warm_cross_encoder_at_startup())
 
 
 if __name__ == "__main__":

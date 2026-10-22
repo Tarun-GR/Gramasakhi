@@ -46,3 +46,12 @@ def validate_runtime_profile() -> None:
     if errors:
         print("FATAL: Cloud runtime configuration invalid: " + "; ".join(errors), flush=True)
         sys.exit(1)
+
+
+def should_warm_cross_encoder_at_startup() -> bool:
+    """CrossEncoder + PyTorch can exceed 512MB; defer load until first rerank when disabled."""
+    if not settings.HYBRID_RERANK_ENABLED:
+        return False
+    if not getattr(settings, "STARTUP_WARM_CROSS_ENCODER", True):
+        return False
+    return True
