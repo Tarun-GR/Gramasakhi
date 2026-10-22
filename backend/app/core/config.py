@@ -161,6 +161,10 @@ class Settings(BaseSettings):
     # Dev-only OTP retrieval endpoint (requires APP_ENV != production + secret key)
     OTP_DEV_RETRIEVAL_ENABLED: bool = False
     OTP_DEV_RETRIEVAL_KEY: str = ""
+    # FYP / public demo — OTP returned in API only for DEMO_LOGIN_PHONES (see demo_login.py)
+    DEMO_LOGIN_ENABLED: bool = False
+    DEMO_LOGIN_PHONES: str = ""
+    DEMO_LOGIN_LABEL: str = "FYP demo citizen"
     SECURITY_HEADERS_ENABLED: bool = True
 
     # IVR — Exotel telephony (credentials used by Flow/dashboard tooling, not echoed in IVR responses)

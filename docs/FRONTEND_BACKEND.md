@@ -61,9 +61,18 @@ npm run build
 
 Output: `frontend/gramsakhi/dist`
 
+## OTP on deployed stack
+
+Production backend uses `OTP_DELIVERY_MODE=sms` without a wired SMS provider: **send returns 200** but the OTP is **not** delivered for normal numbers.
+
+For **FYP review**, enable allowlisted demo login on the backend only: [FYP_DEMO_LOGIN.md](../backend/docs/FYP_DEMO_LOGIN.md). Do not enable `OTP_DEV_POPUP` on Render.
+
+Local developers: [LOCAL_OTP_TESTING.md](../backend/docs/LOCAL_OTP_TESTING.md).
+
 ## Verification checklist (manual)
 
 - [ ] `GET https://gramasakhi.onrender.com/health` returns 200
-- [ ] OTP login from hosted or local UI (production SMS must be configured on backend)
+- [ ] OTP login on production requires real SMS (not configured yet)
+- [ ] Local login with `dev_popup` against `127.0.0.1:8000`
 - [ ] Chat returns real `answer` JSON (not client-side mock)
 - [ ] Browser network tab shows requests to `gramasakhi.onrender.com/api/...`

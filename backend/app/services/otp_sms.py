@@ -18,6 +18,10 @@ def deliver_otp_via_sms(phone_number: str, code: str, *, purpose: str) -> None:
     """
     Dispatch OTP via configured SMS provider.
     Never log the OTP value — only masked phone and purpose.
+
+    Until Exotel/other credentials are wired, this is a no-op stub: the API still
+    returns 200 after persisting the OTP hash. Use local dev_popup or console
+    simulator for testing (see backend/docs/LOCAL_OTP_TESTING.md).
     """
     # Integrate Exotel/other provider here when credentials are configured.
     logger.info(

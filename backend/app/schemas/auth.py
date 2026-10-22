@@ -66,6 +66,16 @@ class OTPSendResponse(BaseModel):
     delivery_mode: str = "sms"
     dev_otp: Optional[str] = None
     dev_notice: Optional[str] = None
+    demo_otp: Optional[str] = None
+    demo_notice: Optional[str] = None
+
+
+class DemoLoginInfoResponse(BaseModel):
+    enabled: bool
+    demo_phone: Optional[str] = None
+    demo_phones: Optional[list[str]] = None
+    label: Optional[str] = None
+    notice: Optional[str] = None
 
 
 class ForgotPasswordResetRequest(BaseModel):

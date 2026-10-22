@@ -27,6 +27,10 @@ services:
         value: false
       - key: OTP_CONSOLE_SIMULATOR_ENABLED
         value: false
+      - key: DEMO_LOGIN_ENABLED
+        value: false
+      - key: DEMO_LOGIN_PHONES
+        value: ""
       - key: IVR_PROVIDER
         value: mock
       - key: STARTUP_WARM_CROSS_ENCODER

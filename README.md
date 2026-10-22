@@ -10,6 +10,7 @@ Converted from Sahyog 1.0. Historical notes: `migration_audit.md`, `docs/sahyog_
 
 - Mentor pack: [`docs/PHASE_2_REVIEW.md`](docs/PHASE_2_REVIEW.md)
 - Demo checklist: [`docs/DEMO_CHECKLIST.md`](docs/DEMO_CHECKLIST.md)
+- Deployed FYP demo login (allowlisted phone): [`backend/docs/FYP_DEMO_LOGIN.md`](backend/docs/FYP_DEMO_LOGIN.md)
 - System check: `cd backend && .\.venv\Scripts\python.exe scripts\gramsakhi_system_check.py`  
   or `GET http://127.0.0.1:8000/health/system`
 
@@ -46,7 +47,7 @@ cd backend
 
 API docs: http://127.0.0.1:8000/docs
 
-**Dev OTP (FYP demo):** set `OTP_DELIVERY_MODE=dev_popup` and `OTP_DEV_POPUP_ENABLED=true` in `backend/.env` — see [`backend/docs/OTP_DEV_POPUP.md`](backend/docs/OTP_DEV_POPUP.md). Legacy terminal/file OTP and [`OTP_DEV_RETRIEVAL.md`](backend/docs/OTP_DEV_RETRIEVAL.md) remain available.
+**OTP:** Local dev popup — [`backend/docs/LOCAL_OTP_TESTING.md`](backend/docs/LOCAL_OTP_TESTING.md). **Deployed FYP demo** — [`backend/docs/FYP_DEMO_LOGIN.md`](backend/docs/FYP_DEMO_LOGIN.md) (`DEMO_LOGIN_ENABLED` + allowlisted phone). Production SMS is still a stub for non-demo numbers.
 
 ### Terminal 3 — Unified frontend (port 5173)
 

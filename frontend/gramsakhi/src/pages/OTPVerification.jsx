@@ -5,6 +5,7 @@ import { OTPInput } from "../components/auth/OTPInput";
 import DevOtpSidePanel from "../components/auth/DevOtpSidePanel";
 import { MarketingPage } from "../gramasakhi-ui/components/marketing/MarketingShell";
 import api from "../services/api";
+import { otpSessionFromSendResponse } from "../utils/otpSendSession";
 import {
   Smartphone,
   ShieldCheck,
@@ -36,7 +37,10 @@ export default function OTPVerification() {
   const [success, setSuccess] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  const showDevPanel = Boolean(otpSession?.devOtp && otpSession?.deliveryMode === "dev_popup");
+  const showDevPanel = Boolean(
+    otpSession?.devOtp &&
+      (otpSession?.deliveryMode === "dev_popup" || otpSession?.deliveryMode === "demo")
+  );
 
   useEffect(() => {
     if (!phone) {
@@ -60,22 +64,8 @@ export default function OTPVerification() {
 
   const applySendResponse = (data) => {
     if (!data) return;
-    if (data.delivery_mode === "dev_popup" && data.dev_otp) {
-      setOtpSession({
-        deliveryMode: data.delivery_mode,
-        devOtp: data.dev_otp,
-        devNotice: data.dev_notice,
-        otpVerificationId: data.otp_verification_id,
-        expiresInSeconds: data.expires_in_seconds,
-      });
-    } else {
-      setOtpSession({
-        deliveryMode: data.delivery_mode || "sms",
-        otpVerificationId: data.otp_verification_id,
-        expiresInSeconds: data.expires_in_seconds,
-        devOtp: null,
-      });
-    }
+    const session = otpSessionFromSendResponse(data);
+    if (session) setOtpSession(session);
     if (typeof data.expires_in_seconds === "number") {
       setTimer(data.expires_in_seconds);
     }
@@ -244,6 +234,8 @@ export default function OTPVerification() {
                 expiresInSeconds={timer}
                 onCopy={handleCopyDevOtp}
                 copied={copied}
+                otpLabel={otpSession.otpLabel || "Demo OTP"}
+                ariaLabel={otpSession.ariaLabel || "Development OTP helper"}
               />
             </div>
           )}

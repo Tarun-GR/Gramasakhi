@@ -12,6 +12,8 @@ export function DevOtpSidePanel({
   onCopy,
   copied,
   className = "",
+  otpLabel = "Demo OTP",
+  ariaLabel = "Development OTP helper",
 }) {
   if (!devOtp) return null;
 
@@ -21,7 +23,7 @@ export function DevOtpSidePanel({
   return (
     <aside
       className={`dev-otp-panel border border-amber-500/40 bg-amber-50 dark:bg-amber-950/30 rounded-2xl p-4 shadow-ambient ${className}`}
-      aria-label="Development OTP helper"
+      aria-label={ariaLabel}
       role="complementary"
     >
       <div className="flex gap-2 items-start mb-3">
@@ -32,7 +34,7 @@ export function DevOtpSidePanel({
         </p>
       </div>
       <p className="text-[11px] uppercase tracking-wide text-amber-800/80 dark:text-amber-200/80 mb-1">
-        Demo OTP
+        {otpLabel}
       </p>
       <div className="flex items-center justify-between gap-3">
         <span

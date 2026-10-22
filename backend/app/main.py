@@ -86,6 +86,33 @@ def _guard_otp_delivery_config() -> None:
 _guard_otp_delivery_config()
 
 
+def _guard_demo_login_config() -> None:
+    from app.services.demo_login import validate_demo_login_config
+
+    validate_demo_login_config()
+
+
+_guard_demo_login_config()
+
+
+def _log_demo_login_hint() -> None:
+    if any(name in sys.modules for name in ("pytest", "unittest")):
+        return
+    from app.services.demo_login import demo_login_enabled, demo_phone_allowlist
+
+    if demo_login_enabled():
+        phones = demo_phone_allowlist()
+        masked = [f"***{p[-4:]}" if len(p) >= 4 else "***" for p in phones]
+        print(
+            f"GramSakhi FYP demo login: ENABLED for {len(phones)} allowlisted phone(s) "
+            f"({', '.join(masked)}). demo_otp is returned only for those numbers.",
+            flush=True,
+        )
+
+
+_log_demo_login_hint()
+
+
 def _guard_cloud_runtime_config() -> None:
     from app.services.runtime_profile import validate_runtime_profile
 

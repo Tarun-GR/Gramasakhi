@@ -71,6 +71,22 @@ class TestOtpDevPopup(unittest.TestCase):
         self.assertIn("otp_verification_id", body)
         self.assertNotIn("445566", body.get("message", ""))
 
+    def test_production_send_never_returns_dev_otp(self):
+        with patch.object(settings, "APP_ENV", "production"):
+            with patch.object(settings, "OTP_DELIVERY_MODE", "sms"):
+                with patch.object(settings, "OTP_DEV_POPUP_ENABLED", False):
+                    with patch.object(settings, "DEMO_LOGIN_ENABLED", False):
+                        with patch.object(security, "generate_otp", return_value="998877"):
+                            res = self.client.post(
+                                "/api/auth/otp/send",
+                                json={"phone_number": "9000113399"},
+                            )
+        self.assertEqual(res.status_code, 200, res.text)
+        body = res.json()
+        self.assertNotIn("dev_otp", body)
+        self.assertNotIn("demo_otp", body)
+        self.assertEqual(body.get("delivery_mode"), "sms")
+
     def test_sms_mode_never_returns_dev_otp(self):
         phone = "9000333301"
         with patch.object(settings, "OTP_DELIVERY_MODE", "sms"):

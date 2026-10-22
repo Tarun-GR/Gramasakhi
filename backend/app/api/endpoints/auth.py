@@ -15,7 +15,9 @@ from app.schemas.auth import (
     ForgotPasswordResetRequest,
     OTPDevRetrievalResponse,
     OTPSendResponse,
+    DemoLoginInfoResponse,
 )
+from app.services.demo_login import demo_otp_may_be_returned, public_demo_info
 from app.services.otp_delivery import (
     build_otp_send_response,
     dev_popup_active,
@@ -180,6 +182,12 @@ def login(request: LoginRequest, http_request: Request, db: Session = Depends(ge
     return _token_payload(account)
 
 
+@router.get("/demo/info", response_model=DemoLoginInfoResponse)
+def demo_login_info():
+    """Public FYP demo metadata (no OTP). Enabled only when DEMO_LOGIN_ENABLED is set on the server."""
+    return public_demo_info()
+
+
 @router.post("/otp/send", response_model=OTPSendResponse, response_model_exclude_none=True)
 def send_otp(request: OTPRequest, db: Session = Depends(get_db)):
     if not auth_rate_limit_ok(request.phone_number, bucket="otp_send"):
@@ -190,7 +198,8 @@ def send_otp(request: OTPRequest, db: Session = Depends(get_db)):
 
     otp_record, code = _create_otp_record(db, request.phone_number)
 
-    if not dev_popup_active():
+    demo_code = code if demo_otp_may_be_returned(request.phone_number) else None
+    if not dev_popup_active() and not demo_code:
         dispatch_otp_sms(request.phone_number, code, purpose="verification")
     _log_otp_simulator(request.phone_number, code, purpose="verification")
 
@@ -198,6 +207,7 @@ def send_otp(request: OTPRequest, db: Session = Depends(get_db)):
         otp_verification_id=str(otp_record.id),
         expires_at=otp_record.expires_at,
         dev_code=code if dev_popup_active() else None,
+        demo_code=demo_code,
     )
 
 

@@ -72,8 +72,11 @@ def build_otp_send_response(
     otp_verification_id: str,
     expires_at: datetime,
     dev_code: Optional[str] = None,
+    demo_code: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Public JSON for POST /otp/send (dev OTP field only when dev_popup_active)."""
+    """Public JSON for POST /otp/send (dev/demo OTP fields only when explicitly allowed)."""
+    from app.services.demo_login import DEMO_OTP_NOTICE
+
     exp = expires_at if expires_at.tzinfo else expires_at.replace(tzinfo=timezone.utc)
     now = datetime.now(timezone.utc)
     expires_in = max(0, int((exp - now).total_seconds()))
@@ -82,7 +85,11 @@ def build_otp_send_response(
         "otp_verification_id": otp_verification_id,
         "expires_in_seconds": expires_in,
     }
-    if dev_popup_active() and dev_code:
+    if demo_code:
+        payload["delivery_mode"] = "demo"
+        payload["demo_otp"] = demo_code
+        payload["demo_notice"] = DEMO_OTP_NOTICE
+    elif dev_popup_active() and dev_code:
         payload["delivery_mode"] = "dev_popup"
         payload["dev_otp"] = dev_code
         payload["dev_notice"] = DEV_POPUP_NOTICE
