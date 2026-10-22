@@ -4,10 +4,13 @@ services:
     name: gramsakhi-api
     runtime: python
     rootDir: backend
+    # Also pinned via backend/.python-version (Render reads it when rootDir is backend)
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
     envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.11
       - key: APP_ENV
         value: production
       - key: RUNTIME_PROFILE
