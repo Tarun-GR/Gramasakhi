@@ -1686,13 +1686,16 @@ def answer_with_evidence_gate(
         if alt.ok:
             result = alt
 
-    cov_sig = (result.signals or {}).get("coverage") or {}
+    cov_raw = (result.signals or {}).get("coverage")
+    cov_sig = cov_raw if isinstance(cov_raw, dict) else {}
     logger.info(
         "evidence_validate ok=%s reason=%s docs_in=%s kept=%s coverage=%s missing_intent=%s",
         result.ok,
         result.reason,
         len(docs),
-        (result.signals or {}).get("pruning", {}).get("kept"),
+        (result.signals or {}).get("pruning", {}).get("kept")
+        if isinstance((result.signals or {}).get("pruning"), dict)
+        else None,
         cov_sig.get("detail"),
         cov_sig.get("missing_intent"),
     )
