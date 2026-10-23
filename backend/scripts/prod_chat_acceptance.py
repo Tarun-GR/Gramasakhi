@@ -14,11 +14,18 @@ DEFAULT_BASE = "https://gramasakhi.onrender.com/api"
 DEMO_PHONE = "9999900001"
 
 CASES = [
-    ("pm_kisan", "What is PM-KISAN? Explain eligibility and benefits.", "EN"),
-    ("pmjay", "What is Ayushman Bharat PM-JAY? Explain eligibility and benefits for citizens.", "EN"),
-    ("gruha_lakshmi", "What is Gruha Lakshmi scheme? Explain eligibility and benefits.", "EN"),
-    ("gruha_jyothi", "What is Gruha Jyothi? Explain eligibility and benefits.", "EN"),
-    ("unsupported", "What is the Mars farmer subsidy eligibility in Karnataka?", "EN"),
+    ("pm_kisan", "What is PM-KISAN? Explain eligibility and benefits.", "EN", True),
+    ("pmjay", "What is Ayushman Bharat PM-JAY? Explain eligibility and benefits for citizens.", "EN", True),
+    ("gruha_lakshmi", "What is Gruha Lakshmi scheme? Explain eligibility and benefits.", "EN", True),
+    ("gruha_jyothi", "What is Gruha Jyothi? Explain eligibility and benefits.", "EN", None),
+    ("pmsby", "What is PM-SBY? Explain eligibility and benefits.", "EN", True),
+    ("mgnrega", "What is MGNREGA? Explain eligibility and benefits.", "EN", True),
+    (
+        "unsupported_mars",
+        "What is the Mars farmer subsidy eligibility in Karnataka?",
+        "EN",
+        False,
+    ),
 ]
 
 
@@ -75,31 +82,55 @@ def main() -> int:
     parser.add_argument("--base", default=DEFAULT_BASE)
     parser.add_argument("--phone", default=DEMO_PHONE)
     parser.add_argument("--token", help="Bearer token (skip OTP)")
+    parser.add_argument(
+        "--expect-sha-prefix",
+        default="",
+        help="Fail if /health/build git_commit does not start with this prefix",
+    )
     args = parser.parse_args()
 
     build = _get(args.base.replace("/api", "") + "/health/build")
-    print(f"git_commit={str(build.get('git_commit') or '')[:12]}")
+    sha = str(build.get("git_commit") or "")
+    print(f"git_commit={sha[:12]}")
+    if args.expect_sha_prefix and not sha.startswith(args.expect_sha_prefix):
+        print(f"FAIL: expected deployed sha prefix {args.expect_sha_prefix!r}")
+        return 2
 
     token = args.token or _login(args.base, args.phone)
     results = []
-    for case_id, message, lang in CASES:
+    failures: list[str] = []
+    for case_id, message, lang, expect_validated in CASES:
         t0 = time.time()
         try:
             r = _post(f"{args.base}/chat", {"message": message, "language": lang}, token=token)
             ms = int((time.time() - t0) * 1000)
+            sources = r.get("sources") or []
             row = {
                 "id": case_id,
                 "ms": ms,
                 "validated": r.get("validated"),
                 "reason": r.get("reason"),
                 "llm_invoked": r.get("llm_invoked"),
+                "sources_n": len(sources),
+                "request_id": r.get("request_id"),
                 "answer_preview": (r.get("answer") or "")[:100],
             }
+            if expect_validated is not None and row.get("validated") != expect_validated:
+                failures.append(
+                    f"{case_id}: expected validated={expect_validated} got {row.get('validated')}"
+                )
+            if expect_validated is True and row.get("reason") == "llm_unavailable":
+                failures.append(f"{case_id}: LLM unavailable despite validated=true")
         except Exception as exc:  # noqa: BLE001
             row = {"id": case_id, "error": str(exc)[:200]}
+            failures.append(f"{case_id}: {row['error']}")
         results.append(row)
         print(json.dumps(row))
 
+    if failures:
+        print("FAILURES:", "; ".join(failures))
+        return 1
+    print("PASS: all cases matched expectations")
     return 0
 
 

@@ -34,6 +34,17 @@ This creates/updates a row in `family_accounts` with OTP-only auth (random passw
 3. On verify, read the **FYP demo login code** panel and enter the 6-digit OTP.  
 4. Open **Chat** and ask a scheme question (e.g. PM-KISAN, Shakti).
 
+## Automated production acceptance (maintainers)
+
+After deploy, confirm `GET /health/build` matches the intended Git commit, then run (uses allowlisted demo OTP once per run):
+
+```powershell
+cd backend
+.\.venv\Scripts\python.exe scripts\prod_chat_acceptance.py
+```
+
+Optional: pass a fresh citizen JWT with `--token` to skip OTP when rate limits apply (`AUTH_OTP_SEND_MAX_PER_WINDOW` is 5 per hour per phone).
+
 ## Security notes
 
 - `demo_otp` appears in JSON **only** when `DEMO_LOGIN_ENABLED` and the requested phone is in `DEMO_LOGIN_PHONES`.
