@@ -780,6 +780,8 @@ _GENERIC_IDENTITY_TOKENS = {
     "application",
     "apply",
     "process",
+    "subsidy",
+    "subsidies",
 }
 
 _SCHEME_PHRASE = re.compile(
@@ -873,24 +875,29 @@ def requested_scheme_identity(query: str) -> Optional[Dict[str, str]]:
 
     sid = sid_early or slug_hint_from_query(hint) or slug_hint_from_query(query) or ""
     known = set(_known_scheme_keys())
-    known_hit = bool(
-        sid
-        or mentions
-        or key in known
-        or any(
-            key == k or (len(k) >= 4 and (key in k or k in key))
-            for k in known
-        )
-    )
+    known_hit = bool(sid or mentions or key in known)
+    if not known_hit:
+        key_tokens = set((key or "").split())
+        for k in known:
+            if key == k:
+                known_hit = True
+                break
+            if len(k) < 6 or k in _GENERIC_IDENTITY_TOKENS:
+                continue
+            if k in key_tokens:
+                continue
+            if key in k or k in key:
+                known_hit = True
+                break
     distinctive = _distinctive_identity_tokens(key)
-    named = known_hit or (
-        bool(distinctive)
-        and (
-            bool(_SCHEME_PHRASE.search(query or ""))
-            or len(distinctive) >= 2
-        )
+    # Off-catalog but explicitly named schemes (e.g. KSCSTE Emeritus Scientist Scheme).
+    off_catalog_named = bool(
+        _SCHEME_PHRASE.search(query or "")
+        and len(distinctive) >= 2
+        and any(len(t) >= 5 for t in distinctive)
     )
-    if not named:
+    # Do not invent identity from topical phrases (e.g. "Mars farmer subsidy").
+    if not known_hit and not mentions and not sid_early and not off_catalog_named:
         return None
 
     return {
@@ -1018,10 +1025,18 @@ def evidence_matches_requested_scheme(
     if req_key and normalize_scheme_key(name) == req_key:
         return True
     req_tokens = _distinctive_identity_tokens(req_key)
+    known_keys = set(_known_scheme_keys())
+    req_is_catalog = bool(
+        req_slug
+        or req_key in known_keys
+        or any(req_key == k or req_key in k or k in req_key for k in known_keys if len(k) >= 4)
+    )
     if req_tokens:
         hits = sum(1 for t in req_tokens if t in blob_key)
         if hits >= max(1, (len(req_tokens) + 1) // 2):
-            return True
+            if req_is_catalog or not cand_slug:
+                return True
+            return False
 
     # Hard reject: document clearly about a different known scheme
     found = detect_scheme_keys_in_text(blob)

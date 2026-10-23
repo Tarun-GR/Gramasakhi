@@ -397,6 +397,13 @@ class TestKscsteIdentityRegression(unittest.TestCase):
     def test_generic_topic_does_not_force_identity(self):
         self.assertIsNone(requested_scheme_identity("financial help for farmers"))
 
+    def test_fictional_scheme_does_not_force_identity(self):
+        self.assertIsNone(
+            requested_scheme_identity(
+                "What is the Mars farmer subsidy eligibility in Karnataka?"
+            )
+        )
+
     def test_ingest_rejects_pmsby_without_partial(self):
         from io import StringIO
 
