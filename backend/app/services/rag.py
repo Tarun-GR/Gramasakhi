@@ -1112,7 +1112,8 @@ def _scheme_intent_supplement(
     scheme_where, params = _scheme_sql_like_filter(needles, param_prefix="sn")
     params["limit"] = int(limit)
     elig_re = (
-        "(eligible|eligibility|benefit|benefits|criteria|who can apply|beneficiary|installment|assistance)"
+        "(section:\\\\neligibility|eligible for|eligibility criteria|who can apply|beneficiary|"
+        "secc|hospitalization|health coverage|jan arogya|rupees| lakh| crore|installment|assistance)"
     )
     sql = text(
         f"""
@@ -1132,22 +1133,34 @@ def _scheme_intent_supplement(
     rows = db.execute(sql, params).fetchall()
     exclude = exclude_chunk_ids or set()
     out: List[Dict[str, Any]] = []
+    try:
+        from app.services.evidence_quality import evidence_quality_score, navigation_heaviness
+    except Exception:  # noqa: BLE001
+        evidence_quality_score = None  # type: ignore[assignment,misc]
+        navigation_heaviness = None  # type: ignore[assignment,misc]
+
     for r in rows:
         cid = str(r.chunk_id)
         if cid in exclude:
             continue
-        out.append(
-            {
-                "chunk_id": cid,
-                "content": r.content,
-                "document_title": r.document_title,
-                "scheme_name": getattr(r, "scheme_name", None),
-                "source": getattr(r, "source", None),
-                "metadata": getattr(r, "metadata", None),
-                "similarity_score": 0.82,
-                "source_aligned": True,
-            }
-        )
+        body = str(r.content or "")
+        if navigation_heaviness is not None and navigation_heaviness(body) >= 0.42:
+            continue
+        row = {
+            "chunk_id": cid,
+            "content": r.content,
+            "document_title": r.document_title,
+            "scheme_name": getattr(r, "scheme_name", None),
+            "source": getattr(r, "source", None),
+            "metadata": getattr(r, "metadata", None),
+            "similarity_score": 0.82,
+            "source_aligned": True,
+        }
+        if evidence_quality_score is not None:
+            row["similarity_score"] = max(0.82, 0.55 + evidence_quality_score(row))
+        out.append(row)
+    if evidence_quality_score is not None:
+        out.sort(key=lambda d: float(d.get("similarity_score") or 0.0), reverse=True)
     if out:
         logger.info("scheme_intent_supplement hits=%s scheme=%s", len(out), needles[0])
     return out
@@ -1571,6 +1584,13 @@ def answer_with_evidence_gate(
         )
     except Exception as exc:  # noqa: BLE001
         logger.warning("evidence expansion failed: %s", type(exc).__name__)
+
+    try:
+        from app.services.evidence_quality import rerank_docs_by_evidence_quality
+
+        docs = rerank_docs_by_evidence_quality(validation_query or q, docs)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("evidence quality rerank failed: %s", type(exc).__name__)
 
     if retrieval_error and not docs:
         return {

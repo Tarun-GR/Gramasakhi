@@ -1316,6 +1316,12 @@ def select_question_aware_evidence(
     items = list(docs or [])
     if not items:
         return []
+    try:
+        from app.services.evidence_quality import rerank_docs_by_evidence_quality
+
+        items = rerank_docs_by_evidence_quality(query, items)
+    except Exception:  # noqa: BLE001
+        pass
     intent = query_citizen_intent(query)
     if intent == "complete":
         return items[: max(max_chunks, 8)]
