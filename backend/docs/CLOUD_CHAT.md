@@ -4,6 +4,10 @@
 
 `GET https://gramasakhi.onrender.com/health/system` reports **FAISS/BM25 missing** under `/opt/render/project/src/backend/indexes` (ephemeral disk). Chat used to call `build_all()` on first message (heavy) and could run **live government fallback up to 240s**, exceeding Render’s ~**100s** HTTP proxy → **502** with only a slow or absent `POST /api/chat` in logs.
 
+## Authenticated chat E2E (verified 2026-10-23)
+
+With demo login enabled, `POST /api/chat` returned **HTTP 200** in ~51s but **no grounded answer** when pgvector scores were low and live gov ran. Later fixes add **scheme_text** DB fallback and disable live gov on cloud when disk indexes are missing.
+
 ## Code behavior (after fix)
 
 | Stage | Cloud behavior |

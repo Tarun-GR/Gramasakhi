@@ -48,6 +48,21 @@ def validate_runtime_profile() -> None:
         sys.exit(1)
 
 
+def live_gov_fallback_allowed(*, hybrid_disk_indexes_ready: bool) -> bool:
+    """Cloud without persisted indexes: skip live gov unless explicitly enabled."""
+    if not settings.LIVE_GOV_FALLBACK_ENABLED:
+        return False
+    if is_cloud_runtime() and not hybrid_disk_indexes_ready:
+        return bool(getattr(settings, "CLOUD_LIVE_GOV_WHEN_INDEXES_MISSING", False))
+    return True
+
+
+def pgvector_similarity_floor() -> float:
+    if is_cloud_runtime():
+        return float(getattr(settings, "CLOUD_PGVECTOR_SIMILARITY_FLOOR", 0.52))
+    return float(getattr(settings, "PGVECTOR_SIMILARITY_FLOOR", 0.70))
+
+
 def should_warm_cross_encoder_at_startup() -> bool:
     """CrossEncoder + PyTorch can exceed 512MB; defer load until first rerank when disabled."""
     if not settings.HYBRID_RERANK_ENABLED:

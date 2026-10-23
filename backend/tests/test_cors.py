@@ -22,6 +22,23 @@ class TestCorsConfiguration(unittest.TestCase):
         origins = list(settings.BACKEND_CORS_ORIGINS or [])
         self.assertIn(PRODUCTION_FRONTEND, origins)
 
+    def test_cors_preflight_chat_production_origin(self):
+        response = self.client.options(
+            "/api/chat",
+            headers={
+                "Origin": PRODUCTION_FRONTEND,
+                "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Headers": "authorization,content-type",
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.headers.get("access-control-allow-origin"),
+            PRODUCTION_FRONTEND,
+        )
+        allow_headers = (response.headers.get("access-control-allow-headers") or "").lower()
+        self.assertIn("authorization", allow_headers)
+
     def test_cors_preflight_otp_send_production_origin(self):
         response = self.client.options(
             "/api/auth/otp/send",

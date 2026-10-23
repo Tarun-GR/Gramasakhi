@@ -6,7 +6,7 @@ import logging
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError
 from sqlalchemy.exc import SQLAlchemyError
@@ -219,6 +219,7 @@ def delete_conversation(
 @router.post("/", response_model=ChatResponse)
 def citizen_chat(
     body: ChatRequest,
+    http_request: Request,
     db: Session = Depends(get_db),
     citizen: CitizenAccount = Depends(get_current_citizen),
 ):
@@ -238,7 +239,7 @@ def citizen_chat(
         set_chat_request_context,
     )
 
-    rid = new_chat_request_id()
+    rid = getattr(http_request.state, "request_id", None) or new_chat_request_id()
     budget_s = chat_pipeline_budget_seconds()
     deadline = time.monotonic() + budget_s
     set_chat_request_context(request_id=rid, deadline_mono=deadline)
@@ -260,6 +261,7 @@ def citizen_chat(
         )
         timer.mark("handler_ok", msg_len=msg_len)
         timer.finish(status="ok", http_status=200)
+        result["request_id"] = rid
         return ChatResponse(**{k: result[k] for k in ChatResponse.model_fields if k in result})
     except HTTPException as exc:
         timer.mark("http_error", code=exc.status_code)

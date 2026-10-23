@@ -20,18 +20,32 @@ function citizenSafeDetail(detail, status) {
   return trimmed;
 }
 
+function requestIdFrom(err) {
+  const h = err?.response?.headers;
+  const fromHeader = h?.["x-gramsakhi-request-id"] || h?.["X-GramSakhi-Request-Id"];
+  const fromBody = err?.response?.data?.request_id;
+  const rid = fromHeader || fromBody;
+  return rid ? ` (ref: ${rid})` : "";
+}
+
 function friendlyError(err) {
   const status = err?.response?.status;
   const detail = citizenSafeDetail(err?.response?.data?.detail, status ?? 0);
-  if (detail) return detail;
+  if (detail) return detail + requestIdFrom(err);
   if (status === 401) return "Please sign in again to continue.";
   if (status === 429) return "Too many requests. Please wait a moment and try again.";
   if (status === 503) return "GramSakhi is temporarily unavailable. Please try again.";
   if (status === 504) {
-    return "The server timed out while answering. Try a shorter question or wait a moment.";
+    return (
+      "The server timed out while answering. Try a shorter question or wait a moment." +
+      requestIdFrom(err)
+    );
   }
   if (status === 502) {
-    return "The server gateway timed out (often a slow first answer). Please try again once.";
+    return (
+      "The server gateway timed out (often a slow first answer). Please try again once." +
+      requestIdFrom(err)
+    );
   }
   const aborted = err?.code === "ECONNABORTED" || err?.code === "ETIMEDOUT";
   if (aborted && !status) {
@@ -323,14 +337,12 @@ export const useChatStore = create((set, get) => ({
           },
         }
       );
-    } finally {
-      if (gen === get().chatGeneration && get().isGenerating) {
+    } catch (outerErr) {
+      if (gen === get().chatGeneration) {
         set({
           isGenerating: false,
           currentStreamText: "",
-          error:
-            get().error ||
-            "GramSakhi could not finish updating the chat. Please try again.",
+          error: friendlyError(outerErr),
         });
       }
     }

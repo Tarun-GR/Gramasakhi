@@ -87,6 +87,11 @@ class Settings(BaseSettings):
     # Chat HTTP wall-clock budget (0 = auto: ~88s cloud / 270s local). Keep cloud under Render proxy limits.
     CHAT_PIPELINE_BUDGET_SECONDS: float = 0.0
     CLOUD_LIVE_GOV_OVERALL_CAP_SECONDS: float = 45.0
+    # Min cosine similarity for pgvector retrieval (cloud may use a slightly lower floor).
+    PGVECTOR_SIMILARITY_FLOOR: float = 0.70
+    CLOUD_PGVECTOR_SIMILARITY_FLOOR: float = 0.52
+    # Live gov on cloud when hybrid disk indexes are missing (slow; default off).
+    CLOUD_LIVE_GOV_WHEN_INDEXES_MISSING: bool = False
     # Adaptive acquisition (static → browser JS)
     LIVE_GOV_BROWSER_ENABLED: bool = True
     LIVE_GOV_BROWSER_TIMEOUT_SECONDS: float = 45.0

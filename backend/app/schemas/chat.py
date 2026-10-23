@@ -15,6 +15,7 @@ class ChatRequest(BaseModel):
 
 
 class ChatResponse(BaseModel):
+    request_id: Optional[str] = None
     conversation_id: Union[str, UUID]
     created_new_conversation: bool = False
     title: Optional[str] = None

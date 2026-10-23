@@ -787,8 +787,13 @@ def _pgvector_retrieve(
     db: Session,
     query_text: str,
     limit: int = 5,
+    *,
+    min_score: Optional[float] = None,
 ) -> List[Dict[str, Any]]:
-    """Legacy pgvector path kept as fallback when hybrid indexes cannot run."""
+    """PostgreSQL pgvector path when hybrid FAISS/BM25 indexes are unavailable."""
+    from app.services.runtime_profile import pgvector_similarity_floor
+
+    floor = float(min_score if min_score is not None else pgvector_similarity_floor())
     query_vector = get_embeddings(query_text)
 
     sql = text(
@@ -802,14 +807,15 @@ def _pgvector_retrieve(
             1 - (c.embedding <=> CAST(:query_vector AS vector)) AS similarity_score
         FROM document_chunks c
         JOIN rag_documents d ON c.document_id = d.id
-        WHERE 1 - (c.embedding <=> CAST(:query_vector AS vector)) > 0.70
+        WHERE c.embedding IS NOT NULL
+          AND 1 - (c.embedding <=> CAST(:query_vector AS vector)) > :min_score
         ORDER BY similarity_score DESC
         LIMIT :limit
         """
     )
 
     vector_str = "[" + ",".join(map(str, query_vector)) + "]"
-    params = {"query_vector": vector_str, "limit": limit}
+    params = {"query_vector": vector_str, "limit": limit, "min_score": floor}
 
     rs = db.execute(sql, params).fetchall()
     return [
@@ -823,6 +829,80 @@ def _pgvector_retrieve(
         }
         for r in rs
     ]
+
+
+def _scheme_text_retrieve(
+    db: Session,
+    query_text: str,
+    *,
+    scheme_hint: Optional[str] = None,
+    scheme_id_hint: Optional[str] = None,
+    limit: int = 5,
+) -> List[Dict[str, Any]]:
+    """
+    Deterministic indexed-chunk lookup when vector similarity fails (e.g. embedding model migration).
+    Does not invent content — only returns existing DB chunks.
+    """
+    from app.services.myscheme_service import normalize_scheme_key, slug_hint_from_query
+
+    needles: List[str] = []
+    if scheme_id_hint:
+        needles.append(normalize_scheme_key(scheme_id_hint))
+    if scheme_hint:
+        needles.append(normalize_scheme_key(scheme_hint))
+    slug = slug_hint_from_query(query_text or "")
+    if slug:
+        needles.append(normalize_scheme_key(slug))
+    needles = [n for n in dict.fromkeys(needles) if n and len(n) >= 3]
+    if not needles:
+        return []
+    if db.bind is None or db.bind.dialect.name != "postgresql":
+        return []
+
+    like_clauses = []
+    params: Dict[str, Any] = {"limit": int(limit)}
+    for i, n in enumerate(needles[:4]):
+        key = f"n{i}"
+        params[key] = f"%{n.replace('-', '%')}%"
+        like_clauses.append(
+            f"(lower(coalesce(d.scheme_name,'')) LIKE :{key} "
+            f"OR lower(coalesce(d.title,'')) LIKE :{key} "
+            f"OR lower(coalesce(c.content,'')) LIKE :{key} "
+            f"OR lower(coalesce(c.metadata::text,'')) LIKE :{key})"
+        )
+    where = " OR ".join(like_clauses)
+    sql = text(
+        f"""
+        SELECT c.id AS chunk_id, c.content AS content, d.title AS document_title,
+               d.scheme_name AS scheme_name, c.metadata AS metadata
+        FROM document_chunks c
+        JOIN rag_documents d ON c.document_id = d.id
+        WHERE ({where})
+        ORDER BY c.chunk_index ASC
+        LIMIT :limit
+        """
+    )
+    rows = db.execute(sql, params).fetchall()
+    out: List[Dict[str, Any]] = []
+    for r in rows:
+        out.append(
+            {
+                "chunk_id": str(r.chunk_id),
+                "content": r.content,
+                "document_title": r.document_title,
+                "scheme_name": getattr(r, "scheme_name", None),
+                "metadata": getattr(r, "metadata", None),
+                "similarity_score": 0.78,
+                "source_aligned": True,
+            }
+        )
+    if out:
+        logger.info(
+            "scheme_text_retrieve hits=%s needles=%s",
+            len(out),
+            ",".join(needles[:3]),
+        )
+    return out
 
 
 def retrieve_similar_chunks(
@@ -1087,6 +1167,28 @@ def answer_with_evidence_gate(
                             retrieval_error,
                         )
                         docs = []
+        if not docs:
+            scheme_hint = None
+            scheme_id_hint = None
+            if assistance_context is not None:
+                scheme_hint = getattr(assistance_context, "detected_scheme", None)
+                scheme_id_hint = getattr(assistance_context, "scheme_id", None)
+            try:
+                from app.services.myscheme_service import slug_hint_from_query as _slug
+
+                scheme_id_hint = scheme_id_hint or _slug(q)
+                docs = _scheme_text_retrieve(
+                    db,
+                    q,
+                    scheme_hint=scheme_hint,
+                    scheme_id_hint=scheme_id_hint,
+                    limit=int(top_k or settings.HYBRID_TOP_K),
+                )
+                if docs:
+                    retrieval_path = "scheme_text"
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("scheme_text_retrieve failed: %s", type(exc).__name__)
+
         logger.info(
             "chat_retrieval path=%s hits=%s ms=%s err=%s",
             retrieval_path,

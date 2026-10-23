@@ -43,6 +43,10 @@ services:
         value: "45"
       - key: CHAT_PIPELINE_BUDGET_SECONDS
         value: "0"
+      - key: CLOUD_LIVE_GOV_WHEN_INDEXES_MISSING
+        value: "false"
+      - key: CLOUD_PGVECTOR_SIMILARITY_FLOOR
+        value: "0.52"
       - key: BACKEND_CORS_ORIGINS
         value: '["https://gramasakhi-1.onrender.com","http://127.0.0.1:5173","http://localhost:5173"]'
       - key: GEMINI_API_KEY

@@ -27,6 +27,7 @@ from app.services.chat_pipeline import (
     clear_chat_request_context,
 )
 from app.services.index_builder import HybridIndexesNotReadyError, hybrid_disk_indexes_present
+from app.services.runtime_profile import live_gov_fallback_allowed
 
 
 class TestChatPipelineCloud(unittest.TestCase):
@@ -49,6 +50,13 @@ class TestChatPipelineCloud(unittest.TestCase):
                 ensure_budget(1.0)
         finally:
             clear_chat_request_context()
+
+    def test_live_gov_disabled_on_cloud_without_disk_indexes(self):
+        with patch.object(settings, "RUNTIME_PROFILE", "cloud"):
+            with patch.object(settings, "LIVE_GOV_FALLBACK_ENABLED", True):
+                with patch.object(settings, "CLOUD_LIVE_GOV_WHEN_INDEXES_MISSING", False):
+                    self.assertFalse(live_gov_fallback_allowed(hybrid_disk_indexes_ready=False))
+                    self.assertTrue(live_gov_fallback_allowed(hybrid_disk_indexes_ready=True))
 
     def test_hybrid_disk_indexes_present_false_on_empty_dir(self):
         from pathlib import Path

@@ -776,13 +776,18 @@ def handle_citizen_chat(
                 retrieval_query = assistance.normalized_query
         if chat_timer is not None:
             chat_timer.mark("rag_start")
+        from app.services.index_builder import hybrid_disk_indexes_present
+        from app.services.runtime_profile import live_gov_fallback_allowed
+
         rag_result = rag_service.answer_with_evidence_gate(
             db,
             retrieval_query,
             language=language_name(response_language),
             conversation_context=history,
             skip_llm=skip_llm,
-            enable_live_fallback=bool(settings.LIVE_GOV_FALLBACK_ENABLED),
+            enable_live_fallback=live_gov_fallback_allowed(
+                hybrid_disk_indexes_ready=hybrid_disk_indexes_present()
+            ),
             response_language=response_language,
             strict_language_mode=lang_decision.strict_language_mode,
             assistance_context=assistance,
