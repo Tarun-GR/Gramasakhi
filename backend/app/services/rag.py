@@ -8,7 +8,7 @@ from collections import OrderedDict
 import urllib.request
 import urllib.error
 from io import BytesIO
-from typing import List, Dict, Any, Optional, Set
+from typing import List, Dict, Any, Optional, Set, Sequence, Tuple
 from fastapi import UploadFile, HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy import text
@@ -831,6 +831,74 @@ def _pgvector_retrieve(
     ]
 
 
+def _scheme_retrieval_needles(
+    query_text: str,
+    *,
+    scheme_hint: Optional[str] = None,
+    scheme_id_hint: Optional[str] = None,
+) -> List[str]:
+    """Search tokens for scheme-scoped SQL retrieval (slug ids + human-readable aliases)."""
+    from app.services.myscheme_service import normalize_scheme_key, slug_hint_from_query
+
+    needles: List[str] = []
+    slug_raw = (scheme_id_hint or slug_hint_from_query(query_text or "") or "").strip().lower()
+    if scheme_id_hint:
+        needles.append(normalize_scheme_key(scheme_id_hint))
+        needles.append(scheme_id_hint.strip().lower())
+    if scheme_hint:
+        needles.append(normalize_scheme_key(scheme_hint))
+    slug = slug_hint_from_query(query_text or "")
+    if slug:
+        needles.append(normalize_scheme_key(slug))
+        needles.append(slug.strip().lower())
+    alias_extra: Dict[str, Tuple[str, ...]] = {
+        "ab-pmjay": ("ayushman bharat", "pmjay", "pm jay", "pm-jay"),
+        "pm-kisan": ("pmkisan", "pm kisan", "samman nidhi", "pm-kisan"),
+    }
+    if slug_raw in alias_extra:
+        needles.extend(alias_extra[slug_raw])
+    try:
+        from app.services.myscheme_service import _NAME_ALIASES
+
+        for canon, names in _NAME_ALIASES.items():
+            ck = normalize_scheme_key(canon)
+            if slug_raw and (
+                slug_raw == ck.replace(" ", "-")
+                or slug_raw in ck
+                or ck in slug_raw.replace("-", " ")
+            ):
+                needles.append(ck)
+                needles.extend(names)
+    except Exception:  # noqa: BLE001
+        pass
+    out: List[str] = []
+    for n in needles:
+        t = (n or "").strip()
+        if len(t) >= 3 and t not in out:
+            out.append(t)
+    return out[:8]
+
+
+def _scheme_sql_like_filter(
+    needles: Sequence[str], *, param_prefix: str = "n"
+) -> tuple[str, Dict[str, Any]]:
+    like_clauses: List[str] = []
+    params: Dict[str, Any] = {}
+    for i, n in enumerate(needles[:6]):
+        key = f"{param_prefix}{i}"
+        params[key] = f"%{n.replace('-', '%')}%"
+        like_clauses.append(
+            f"(lower(coalesce(d.scheme_name,'')) LIKE :{key} "
+            f"OR lower(coalesce(d.title,'')) LIKE :{key} "
+            f"OR lower(coalesce(c.content,'')) LIKE :{key} "
+            f"OR lower(coalesce(c.metadata::text,'')) LIKE :{key} "
+            f"OR lower(coalesce(d.source,'')) LIKE :{key})"
+        )
+    if not like_clauses:
+        return "FALSE", params
+    return " OR ".join(like_clauses), params
+
+
 def _scheme_text_retrieve(
     db: Session,
     query_text: str,
@@ -843,34 +911,16 @@ def _scheme_text_retrieve(
     Deterministic indexed-chunk lookup when vector similarity fails (e.g. embedding model migration).
     Does not invent content — only returns existing DB chunks.
     """
-    from app.services.myscheme_service import normalize_scheme_key, slug_hint_from_query
-
-    needles: List[str] = []
-    if scheme_id_hint:
-        needles.append(normalize_scheme_key(scheme_id_hint))
-    if scheme_hint:
-        needles.append(normalize_scheme_key(scheme_hint))
-    slug = slug_hint_from_query(query_text or "")
-    if slug:
-        needles.append(normalize_scheme_key(slug))
-    needles = [n for n in dict.fromkeys(needles) if n and len(n) >= 3]
+    needles = _scheme_retrieval_needles(
+        query_text, scheme_hint=scheme_hint, scheme_id_hint=scheme_id_hint
+    )
     if not needles:
         return []
     if db.bind is None or db.bind.dialect.name != "postgresql":
         return []
 
-    like_clauses = []
-    params: Dict[str, Any] = {"limit": int(limit)}
-    for i, n in enumerate(needles[:4]):
-        key = f"n{i}"
-        params[key] = f"%{n.replace('-', '%')}%"
-        like_clauses.append(
-            f"(lower(coalesce(d.scheme_name,'')) LIKE :{key} "
-            f"OR lower(coalesce(d.title,'')) LIKE :{key} "
-            f"OR lower(coalesce(c.content,'')) LIKE :{key} "
-            f"OR lower(coalesce(c.metadata::text,'')) LIKE :{key})"
-        )
-    where = " OR ".join(like_clauses)
+    where, params = _scheme_sql_like_filter(needles)
+    params["limit"] = int(limit)
     from app.services.evidence_expansion import is_eligibility_focused_query
 
     intent_rank = ""
@@ -928,35 +978,23 @@ def _scheme_intent_supplement(
 ) -> List[Dict[str, Any]]:
     """Fetch scheme-scoped chunks rich in eligibility/benefit language (indexed DB only)."""
     from app.services.evidence_expansion import is_eligibility_focused_query
-    from app.services.myscheme_service import normalize_scheme_key, slug_hint_from_query
 
     if not is_eligibility_focused_query(query_text or ""):
         return []
     if db.bind is None or db.bind.dialect.name != "postgresql":
         return []
 
-    needles: List[str] = []
-    if scheme_id_hint:
-        needles.append(normalize_scheme_key(scheme_id_hint))
-    if scheme_hint:
-        needles.append(normalize_scheme_key(scheme_hint))
-    slug = slug_hint_from_query(query_text or "")
-    if slug:
-        needles.append(normalize_scheme_key(slug))
-    needles = [n for n in dict.fromkeys(needles) if n and len(n) >= 3]
+    needles = _scheme_retrieval_needles(
+        query_text, scheme_hint=scheme_hint, scheme_id_hint=scheme_id_hint
+    )
     if not needles:
         return []
 
-    scheme_clauses = []
-    params: Dict[str, Any] = {"limit": int(limit)}
-    for i, n in enumerate(needles[:3]):
-        key = f"sn{i}"
-        params[key] = f"%{n.replace('-', '%')}%"
-        scheme_clauses.append(
-            f"(lower(coalesce(d.scheme_name,'')) LIKE :{key} "
-            f"OR lower(coalesce(d.title,'')) LIKE :{key})"
-        )
-    scheme_where = " OR ".join(scheme_clauses)
+    scheme_where, params = _scheme_sql_like_filter(needles, param_prefix="sn")
+    params["limit"] = int(limit)
+    elig_re = (
+        "(eligible|eligibility|benefit|benefits|criteria|who can apply|beneficiary|installment|assistance)"
+    )
     sql = text(
         f"""
         SELECT c.id AS chunk_id, c.content AS content, d.title AS document_title,
@@ -964,8 +1002,9 @@ def _scheme_intent_supplement(
         FROM document_chunks c
         JOIN rag_documents d ON c.document_id = d.id
         WHERE ({scheme_where})
-          AND lower(coalesce(c.content,'')) ~ '(eligible|eligibility|benefit|criteria|who can apply|beneficiary|installment|assistance)'
+          AND lower(coalesce(c.content,'')) ~ '{elig_re}'
         ORDER BY
+          CASE WHEN lower(coalesce(c.content,'')) ~ 'eligib' THEN 0 ELSE 1 END,
           CASE WHEN lower(coalesce(d.source,'')) LIKE '%myscheme.gov.in/schemes/%' THEN 0 ELSE 1 END,
           c.chunk_index ASC
         LIMIT :limit
