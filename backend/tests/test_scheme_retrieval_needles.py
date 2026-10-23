@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import unittest
 
-from app.services.rag import _scheme_retrieval_needles
+from app.services.scheme_search_service import build_search_needles
 
 
 class TestSchemeRetrievalNeedles(unittest.TestCase):
     def test_pmjay_includes_human_aliases(self):
-        needles = _scheme_retrieval_needles(
+        needles = build_search_needles(
             "What is Ayushman Bharat PM-JAY?",
             scheme_id_hint="ab-pmjay",
         )
@@ -18,7 +18,7 @@ class TestSchemeRetrievalNeedles(unittest.TestCase):
         self.assertTrue(any("ayushman" in n for n in needles))
 
     def test_pm_kisan_includes_samman(self):
-        needles = _scheme_retrieval_needles(
+        needles = build_search_needles(
             "What is PM-KISAN?",
             scheme_id_hint="pm-kisan",
         )

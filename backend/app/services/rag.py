@@ -837,46 +837,11 @@ def _scheme_retrieval_needles(
     scheme_hint: Optional[str] = None,
     scheme_id_hint: Optional[str] = None,
 ) -> List[str]:
-    """Search tokens for scheme-scoped SQL retrieval (slug ids + human-readable aliases)."""
-    from app.services.myscheme_service import normalize_scheme_key, slug_hint_from_query
+    from app.services.scheme_search_service import build_search_needles
 
-    needles: List[str] = []
-    slug_raw = (scheme_id_hint or slug_hint_from_query(query_text or "") or "").strip().lower()
-    if scheme_id_hint:
-        needles.append(normalize_scheme_key(scheme_id_hint))
-        needles.append(scheme_id_hint.strip().lower())
-    if scheme_hint:
-        needles.append(normalize_scheme_key(scheme_hint))
-    slug = slug_hint_from_query(query_text or "")
-    if slug:
-        needles.append(normalize_scheme_key(slug))
-        needles.append(slug.strip().lower())
-    alias_extra: Dict[str, Tuple[str, ...]] = {
-        "ab-pmjay": ("ayushman bharat", "pmjay", "pm jay", "pm-jay"),
-        "pm-kisan": ("pmkisan", "pm kisan", "samman nidhi", "pm-kisan"),
-    }
-    if slug_raw in alias_extra:
-        needles.extend(alias_extra[slug_raw])
-    try:
-        from app.services.myscheme_service import _NAME_ALIASES
-
-        for canon, names in _NAME_ALIASES.items():
-            ck = normalize_scheme_key(canon)
-            if slug_raw and (
-                slug_raw == ck.replace(" ", "-")
-                or slug_raw in ck
-                or ck in slug_raw.replace("-", " ")
-            ):
-                needles.append(ck)
-                needles.extend(names)
-    except Exception:  # noqa: BLE001
-        pass
-    out: List[str] = []
-    for n in needles:
-        t = (n or "").strip()
-        if len(t) >= 3 and t not in out:
-            out.append(t)
-    return out[:8]
+    return build_search_needles(
+        query_text, scheme_hint=scheme_hint, scheme_id_hint=scheme_id_hint
+    )
 
 
 def _scheme_sql_like_filter(
@@ -899,6 +864,150 @@ def _scheme_sql_like_filter(
     return " OR ".join(like_clauses), params
 
 
+def _postgres_lexical_retrieve(
+    db: Session,
+    query_text: str,
+    *,
+    scheme_hint: Optional[str] = None,
+    scheme_id_hint: Optional[str] = None,
+    limit: int = 8,
+) -> List[Dict[str, Any]]:
+    """
+    Cloud-safe lexical retrieval (no FAISS/BM25 disk). Ranks by term hits + intent markers.
+    """
+    from app.services.evidence_validator import extract_keywords
+    from app.services.evidence_expansion import is_eligibility_focused_query
+
+    if db.bind is None or db.bind.dialect.name != "postgresql":
+        return []
+
+    restrict = (scheme_id_hint or "").strip().lower() or None
+    needles = _scheme_retrieval_needles(
+        query_text,
+        scheme_hint=scheme_hint,
+        scheme_id_hint=scheme_id_hint,
+    )
+    if restrict:
+        from app.services.scheme_search_service import build_search_needles
+
+        needles = build_search_needles(
+            query_text,
+            scheme_hint=scheme_hint,
+            scheme_id_hint=scheme_id_hint,
+            restrict_to_scheme_id=restrict,
+        )
+        terms = [n for n in needles if len(n) >= 3][:8]
+    else:
+        terms = list(
+            dict.fromkeys(extract_keywords(query_text or "") + [n for n in needles if len(n) >= 3])
+        )[:8]
+    if not terms:
+        return []
+
+    score_parts: List[str] = []
+    params: Dict[str, Any] = {"limit": int(limit)}
+    for i, term in enumerate(terms):
+        key = f"t{i}"
+        params[key] = f"%{term.replace('-', '%')}%"
+        score_parts.append(
+            f"(CASE WHEN lower(coalesce(c.content,'')) LIKE :{key} THEN 1 ELSE 0 END)"
+        )
+    score_expr = " + ".join(score_parts) if score_parts else "0"
+    where, wparams = _scheme_sql_like_filter(needles[:6], param_prefix="lx")
+    params.update(wparams)
+
+    intent_rank = ""
+    if is_eligibility_focused_query(query_text or ""):
+        intent_rank = """
+        CASE WHEN lower(coalesce(c.content,'')) ~ '(eligible|eligibility|benefit|criteria|beneficiary)'
+          THEN 0 ELSE 1 END,
+        """
+
+    sql = text(
+        f"""
+        SELECT c.id AS chunk_id, c.content AS content, d.title AS document_title,
+               d.scheme_name AS scheme_name, d.source AS source, c.metadata AS metadata,
+               ({score_expr}) AS lex_score
+        FROM document_chunks c
+        JOIN rag_documents d ON c.document_id = d.id
+        WHERE ({where})
+          AND length(trim(coalesce(c.content,''))) >= 40
+        ORDER BY {intent_rank} lex_score DESC, c.chunk_index ASC
+        LIMIT :limit
+        """
+    )
+    rows = db.execute(sql, params).fetchall()
+    out: List[Dict[str, Any]] = []
+    for r in rows:
+        base = float(getattr(r, "lex_score", 0) or 0)
+        sim = min(0.92, 0.62 + 0.04 * base)
+        out.append(
+            {
+                "chunk_id": str(r.chunk_id),
+                "content": r.content,
+                "document_title": r.document_title,
+                "scheme_name": getattr(r, "scheme_name", None),
+                "metadata": getattr(r, "metadata", None),
+                "source": getattr(r, "source", None),
+                "similarity_score": sim,
+                "lexical_score": base,
+            }
+        )
+    if out:
+        logger.info("postgres_lexical_retrieve hits=%s terms=%s", len(out), len(terms))
+    return out
+
+
+def _scheme_slug_source_retrieve(
+    db: Session,
+    scheme_id_hint: str,
+    *,
+    query_text: str = "",
+    limit: int = 6,
+) -> List[Dict[str, Any]]:
+    """Prefer official myScheme slug URLs when scheme id is known (reduces cross-scheme bima noise)."""
+    from app.services.evidence_expansion import is_eligibility_focused_query
+
+    slug = (scheme_id_hint or "").strip().lower()
+    if not slug or db.bind is None or db.bind.dialect.name != "postgresql":
+        return []
+    params: Dict[str, Any] = {
+        "limit": int(limit),
+        "src": f"%myscheme.gov.in/schemes/{slug.replace('-', '%')}%",
+    }
+    intent_filter = ""
+    if is_eligibility_focused_query(query_text or ""):
+        intent_filter = """
+          AND lower(coalesce(c.content,'')) ~ '(eligible|eligibility|benefit|criteria|beneficiary|assistance)'
+        """
+    sql = text(
+        f"""
+        SELECT c.id AS chunk_id, c.content AS content, d.title AS document_title,
+               d.scheme_name AS scheme_name, d.source AS source, c.metadata AS metadata
+        FROM document_chunks c
+        JOIN rag_documents d ON c.document_id = d.id
+        WHERE lower(coalesce(d.source,'')) LIKE :src
+          {intent_filter}
+        ORDER BY c.chunk_index ASC
+        LIMIT :limit
+        """
+    )
+    rows = db.execute(sql, params).fetchall()
+    return [
+        {
+            "chunk_id": str(r.chunk_id),
+            "content": r.content,
+            "document_title": r.document_title,
+            "scheme_name": getattr(r, "scheme_name", None),
+            "metadata": getattr(r, "metadata", None),
+            "source": getattr(r, "source", None),
+            "similarity_score": 0.84,
+            "source_aligned": True,
+        }
+        for r in rows
+    ]
+
+
 def _scheme_text_retrieve(
     db: Session,
     query_text: str,
@@ -911,9 +1020,19 @@ def _scheme_text_retrieve(
     Deterministic indexed-chunk lookup when vector similarity fails (e.g. embedding model migration).
     Does not invent content — only returns existing DB chunks.
     """
-    needles = _scheme_retrieval_needles(
-        query_text, scheme_hint=scheme_hint, scheme_id_hint=scheme_id_hint
+    restrict = (scheme_id_hint or "").strip().lower() or None
+    from app.services.scheme_search_service import build_search_needles
+
+    needles = build_search_needles(
+        query_text,
+        scheme_hint=scheme_hint,
+        scheme_id_hint=scheme_id_hint,
+        restrict_to_scheme_id=restrict,
     )
+    if not needles:
+        needles = _scheme_retrieval_needles(
+            query_text, scheme_hint=scheme_hint, scheme_id_hint=scheme_id_hint
+        )
     if not needles:
         return []
     if db.bind is None or db.bind.dialect.name != "postgresql":
@@ -1274,20 +1393,45 @@ def answer_with_evidence_gate(
 
         def _apply_scheme_text_and_supplement(*, pgvector_docs: List[Dict[str, Any]], base_path: str) -> tuple[List[Dict[str, Any]], str]:
             out_path = base_path
-            merged = list(pgvector_docs)
+            merged: List[Dict[str, Any]] = []
             scheme_hint, scheme_id_hint = _scheme_hints()
             try:
                 st_limit = max(int(top_k or settings.HYBRID_TOP_K), 8 if cloud_indexless else 5)
-                st_docs = _scheme_text_retrieve(
-                    db,
-                    q,
-                    scheme_hint=scheme_hint,
-                    scheme_id_hint=scheme_id_hint,
-                    limit=st_limit,
+                st_docs: List[Dict[str, Any]] = []
+                if scheme_id_hint:
+                    st_docs = _scheme_slug_source_retrieve(
+                        db,
+                        scheme_id_hint,
+                        query_text=validation_query or q,
+                        limit=min(6, st_limit),
+                    )
+                st_docs = _merge_retrieval_docs(
+                    st_docs,
+                    _scheme_text_retrieve(
+                        db,
+                        q,
+                        scheme_hint=scheme_hint,
+                        scheme_id_hint=scheme_id_hint,
+                        limit=st_limit,
+                    ),
                 )
                 if st_docs:
                     merged = _merge_retrieval_docs(st_docs, merged)
-                    out_path = "scheme_text+pgvector" if pgvector_docs else "scheme_text"
+                    out_path = "scheme_text"
+                if cloud_indexless:
+                    lex_docs = _postgres_lexical_retrieve(
+                        db,
+                        validation_query or q,
+                        scheme_hint=scheme_hint,
+                        scheme_id_hint=scheme_id_hint,
+                        limit=st_limit,
+                    )
+                    if lex_docs:
+                        merged = _merge_retrieval_docs(lex_docs, merged)
+                        out_path = f"{out_path}+lexical" if merged else "lexical"
+                if pgvector_docs:
+                    merged = _merge_retrieval_docs(merged, pgvector_docs)
+                    out_path = f"{out_path}+pgvector" if out_path != "none" else "pgvector_cloud"
                 extra = _scheme_intent_supplement(
                     db,
                     q,

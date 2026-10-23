@@ -161,8 +161,14 @@ class ValidationResult:
 
 
 def extract_keywords(query: str) -> List[str]:
-    tokens = re.findall(r"[a-z0-9]+", (query or "").lower())
-    return [t for t in tokens if t not in _STOPWORDS and len(t) > 1]
+    # Latin digits plus Devanagari and Kannada letters for multilingual coverage checks.
+    tokens = re.findall(r"[\w\u0900-\u097F\u0C80-\u0CFF]+", (query or "").lower(), flags=re.UNICODE)
+    out: List[str] = []
+    for t in tokens:
+        if t in _STOPWORDS or len(t) <= 1:
+            continue
+        out.append(t)
+    return out
 
 
 def _doc_text(doc: Dict[str, Any]) -> str:

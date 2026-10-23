@@ -833,6 +833,19 @@ def requested_scheme_identity(query: str) -> Optional[Dict[str, str]]:
     else:
         hint = extract_scheme_name_hint(query) or ""
 
+    hint = re.sub(r"\?.*$", "", (hint or "")).strip()
+
+    sid_early = slug_hint_from_query(query) or slug_hint_from_query(hint) or ""
+    if sid_early:
+        try:
+            from app.services.scheme_search_service import catalog_entries_for_slug
+
+            entries = catalog_entries_for_slug(sid_early)
+            if entries:
+                hint = str(entries[0].get("name") or hint or sid_early).strip()
+        except Exception:  # noqa: BLE001
+            pass
+
     if not hint:
         sid_only = slug_hint_from_query(query) or ""
         if sid_only:
@@ -858,7 +871,7 @@ def requested_scheme_identity(query: str) -> Optional[Dict[str, str]]:
     }:
         return None
 
-    sid = slug_hint_from_query(hint) or slug_hint_from_query(query) or ""
+    sid = sid_early or slug_hint_from_query(hint) or slug_hint_from_query(query) or ""
     known = set(_known_scheme_keys())
     known_hit = bool(
         sid
@@ -901,6 +914,20 @@ def _known_scheme_keys() -> List[str]:
         for alias, canonical in _SCHEME_ALIASES:
             keys.add(normalize_scheme_key(alias))
             keys.add(normalize_scheme_key(canonical))
+    except Exception:
+        pass
+    try:
+        from app.services.scheme_search_service import load_scheme_catalog
+
+        for entry in load_scheme_catalog():
+            eid = str(entry.get("id") or "").strip()
+            if eid:
+                keys.add(normalize_scheme_key(eid))
+            for kw in entry.get("keywords") or []:
+                keys.add(normalize_scheme_key(str(kw)))
+            name = str(entry.get("name") or "")
+            if name:
+                keys.add(normalize_scheme_key(name))
     except Exception:
         pass
     return sorted((k for k in keys if len(k) >= 3), key=len, reverse=True)
