@@ -357,6 +357,22 @@ def health():
     return {"status": "ok", "service": "gramsakhi"}
 
 
+@app.get("/health/build")
+def health_build():
+    """Deploy identity for production debugging (no secrets)."""
+    import os
+
+    from app.services.runtime_profile import is_cloud_runtime
+
+    return {
+        "git_commit": os.environ.get("RENDER_GIT_COMMIT")
+        or os.environ.get("GIT_COMMIT")
+        or "unknown",
+        "runtime_profile": getattr(settings, "RUNTIME_PROFILE", None),
+        "cloud_runtime": is_cloud_runtime(),
+    }
+
+
 @app.get("/health/db")
 def db_health():
     """Report which database the live process is actually using."""

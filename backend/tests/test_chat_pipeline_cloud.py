@@ -109,6 +109,13 @@ class TestChatHttpErrors(unittest.TestCase):
         self.token = security.create_access_token(subject=str(acct.id), token_use="citizen")
         db.close()
 
+    def test_health_build_exposes_git_commit_field(self):
+        res = self.client.get("/health/build")
+        self.assertEqual(res.status_code, 200)
+        body = res.json()
+        self.assertIn("git_commit", body)
+        self.assertIn("runtime_profile", body)
+
     def test_chat_missing_auth_401(self):
         res = self.client.post("/api/chat", json={"message": "What is PM-KISAN?"})
         self.assertEqual(res.status_code, 401)

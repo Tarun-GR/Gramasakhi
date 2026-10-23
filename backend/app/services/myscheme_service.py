@@ -967,6 +967,17 @@ def evidence_matches_requested_scheme(
         req_sid or slug_hint_from_query(requested.get("scheme_name") or "") or ""
     )
     cand_slug = _usable_scheme_slug(sid or slug_hint_from_query(name) or "")
+
+    # PM-KISAN (Samman Nidhi) vs PM-KMY (Maan-Dhan) share pmkisan.gov.in assets.
+    if req_slug == "pmkisan":
+        compact = blob_key.replace(" ", "")
+        if (
+            "pmkmy" in compact
+            or "maandhan" in compact
+            or "kisnmaandhan" in compact
+        ) and "samman" not in compact:
+            return False
+
     if req_slug and cand_slug:
         if req_slug == cand_slug:
             return True

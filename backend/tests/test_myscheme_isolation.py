@@ -67,6 +67,33 @@ class TestSchemeIdentity(unittest.TestCase):
         self.assertFalse(result.ok)
         self.assertEqual(result.reason, "wrong_scheme_evidence")
 
+    def test_reject_pm_kmy_docs_for_pm_kisan_question(self):
+        kmy_doc = {
+            "scheme_name": "PM-KISAN Portal",
+            "document_title": "PM-KISAN Portal",
+            "content": (
+                "Pradhan Mantri Kisan Maan-Dhan Yojana (PM-KMY) provides an assured "
+                "monthly pension of Rs. 3000 to small and marginal farmers at age 60."
+            ),
+            "source": "https://pmkisan.gov.in/Documents/PM-KMY - Operational Guidelines.pdf",
+            "similarity_score": 0.9,
+        }
+        samman_doc = {
+            "scheme_name": "PM-Kisan Samman Nidhi",
+            "content": (
+                "Pradhan Mantri Kisan Samman Nidhi (PM-KISAN) provides income support "
+                "to eligible landholding farmer families."
+            ),
+            "source": "https://www.myscheme.gov.in/schemes/pm-kisan",
+            "similarity_score": 0.88,
+        }
+        kept = filter_evidence_by_scheme(
+            "What is PM-KISAN? Explain eligibility and benefits.",
+            [kmy_doc, samman_doc],
+        )
+        self.assertEqual(len(kept), 1)
+        self.assertIn("Samman", kept[0]["scheme_name"])
+
 
 class TestTopicSwitch(unittest.TestCase):
     def test_udyogini_is_standalone(self):

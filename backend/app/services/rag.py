@@ -1212,19 +1212,73 @@ def answer_with_evidence_gate(
         from app.services.runtime_profile import is_cloud_runtime
 
         t_ret = time.perf_counter()
-        use_pgvector_first = is_cloud_runtime() and not hybrid_disk_indexes_present()
-        if use_pgvector_first:
+        cloud_indexless = is_cloud_runtime() and not hybrid_disk_indexes_present()
+
+        def _scheme_hints() -> tuple[Optional[str], Optional[str]]:
+            sh = (
+                getattr(assistance_context, "detected_scheme", None)
+                if assistance_context is not None
+                else None
+            )
+            sid = (
+                getattr(assistance_context, "scheme_id", None)
+                if assistance_context is not None
+                else None
+            )
+            try:
+                from app.services.myscheme_service import slug_hint_from_query as _slug
+
+                sid = sid or _slug(q)
+            except Exception:  # noqa: BLE001
+                pass
+            return sh, sid
+
+        def _apply_scheme_text_and_supplement(*, pgvector_docs: List[Dict[str, Any]], base_path: str) -> tuple[List[Dict[str, Any]], str]:
+            out_path = base_path
+            merged = list(pgvector_docs)
+            scheme_hint, scheme_id_hint = _scheme_hints()
+            try:
+                st_limit = max(int(top_k or settings.HYBRID_TOP_K), 8 if cloud_indexless else 5)
+                st_docs = _scheme_text_retrieve(
+                    db,
+                    q,
+                    scheme_hint=scheme_hint,
+                    scheme_id_hint=scheme_id_hint,
+                    limit=st_limit,
+                )
+                if st_docs:
+                    merged = _merge_retrieval_docs(st_docs, merged)
+                    out_path = "scheme_text+pgvector" if pgvector_docs else "scheme_text"
+                extra = _scheme_intent_supplement(
+                    db,
+                    q,
+                    scheme_hint=scheme_hint,
+                    scheme_id_hint=scheme_id_hint,
+                    exclude_chunk_ids={str(d.get("chunk_id")) for d in merged if d.get("chunk_id")},
+                    limit=4,
+                )
+                if extra:
+                    merged = _merge_retrieval_docs(merged, extra)
+                    out_path = f"{out_path}+intent"
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("scheme_text_or_supplement failed: %s", type(exc).__name__)
+            return merged, out_path
+
+        if cloud_indexless:
+            pg_docs: List[Dict[str, Any]] = []
             try:
                 ensure_budget(20.0)
-                docs = _pgvector_retrieve(
+                pg_docs = _pgvector_retrieve(
                     db, validation_query or q, limit=int(top_k or settings.HYBRID_TOP_K)
                 )
-                retrieval_path = "pgvector_cloud"
             except Exception as e:  # noqa: BLE001
                 retrieval_error = type(e).__name__
                 logger.warning("pgvector retrieve failed: %s", retrieval_error)
-                docs = []
-        if not docs:
+            docs, retrieval_path = _apply_scheme_text_and_supplement(
+                pgvector_docs=pg_docs,
+                base_path="pgvector_cloud" if pg_docs else "none",
+            )
+        elif not docs:
             try:
                 ensure_budget(15.0)
                 docs = multi_query_hybrid_retrieve(
@@ -1269,59 +1323,38 @@ def answer_with_evidence_gate(
                             retrieval_error,
                         )
                         docs = []
-        if not docs:
-            scheme_hint = None
-            scheme_id_hint = None
-            if assistance_context is not None:
-                scheme_hint = getattr(assistance_context, "detected_scheme", None)
-                scheme_id_hint = getattr(assistance_context, "scheme_id", None)
-            try:
-                from app.services.myscheme_service import slug_hint_from_query as _slug
+            if not docs:
+                scheme_hint, scheme_id_hint = _scheme_hints()
+                try:
+                    st_limit = int(top_k or settings.HYBRID_TOP_K)
+                    docs = _scheme_text_retrieve(
+                        db,
+                        q,
+                        scheme_hint=scheme_hint,
+                        scheme_id_hint=scheme_id_hint,
+                        limit=st_limit,
+                    )
+                    if docs:
+                        retrieval_path = "scheme_text"
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("scheme_text_retrieve failed: %s", type(exc).__name__)
 
-                scheme_id_hint = scheme_id_hint or _slug(q)
-                st_limit = int(top_k or settings.HYBRID_TOP_K)
-                if is_cloud_runtime():
-                    st_limit = max(st_limit, 8)
-                docs = _scheme_text_retrieve(
-                    db,
-                    q,
-                    scheme_hint=scheme_hint,
-                    scheme_id_hint=scheme_id_hint,
-                    limit=st_limit,
-                )
-                if docs:
-                    retrieval_path = "scheme_text"
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("scheme_text_retrieve failed: %s", type(exc).__name__)
-
-        if docs and retrieval_path.startswith(("scheme_text", "pgvector")):
-            sh = (
-                getattr(assistance_context, "detected_scheme", None)
-                if assistance_context is not None
-                else None
-            )
-            sid = (
-                getattr(assistance_context, "scheme_id", None)
-                if assistance_context is not None
-                else None
-            )
-            try:
-                from app.services.myscheme_service import slug_hint_from_query as _slug_hint
-
-                sid = sid or _slug_hint(q)
-                extra = _scheme_intent_supplement(
-                    db,
-                    q,
-                    scheme_hint=sh,
-                    scheme_id_hint=sid,
-                    exclude_chunk_ids={str(d.get("chunk_id")) for d in docs if d.get("chunk_id")},
-                    limit=4,
-                )
-                if extra:
-                    docs = _merge_retrieval_docs(docs, extra)
-                    retrieval_path = f"{retrieval_path}+intent"
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("scheme_intent_supplement failed: %s", type(exc).__name__)
+            if docs and retrieval_path.startswith(("scheme_text", "pgvector")):
+                scheme_hint, scheme_id_hint = _scheme_hints()
+                try:
+                    extra = _scheme_intent_supplement(
+                        db,
+                        q,
+                        scheme_hint=scheme_hint,
+                        scheme_id_hint=scheme_id_hint,
+                        exclude_chunk_ids={str(d.get("chunk_id")) for d in docs if d.get("chunk_id")},
+                        limit=4,
+                    )
+                    if extra:
+                        docs = _merge_retrieval_docs(docs, extra)
+                        retrieval_path = f"{retrieval_path}+intent"
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("scheme_intent_supplement failed: %s", type(exc).__name__)
 
         logger.info(
             "chat_retrieval path=%s hits=%s ms=%s err=%s",
