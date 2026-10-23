@@ -8,7 +8,7 @@ from collections import OrderedDict
 import urllib.request
 import urllib.error
 from io import BytesIO
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Set
 from fastapi import UploadFile, HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy import text
@@ -871,14 +871,26 @@ def _scheme_text_retrieve(
             f"OR lower(coalesce(c.metadata::text,'')) LIKE :{key})"
         )
     where = " OR ".join(like_clauses)
+    from app.services.evidence_expansion import is_eligibility_focused_query
+
+    intent_rank = ""
+    if is_eligibility_focused_query(query_text or ""):
+        intent_rank = """
+        CASE
+          WHEN lower(coalesce(c.content,'')) ~ '(eligible|eligibility|benefit|criteria|who can apply|beneficiary)'
+            THEN 0
+          WHEN lower(coalesce(d.source,'')) LIKE '%myscheme.gov.in/schemes/%' THEN 1
+          ELSE 2
+        END,
+        """
     sql = text(
         f"""
         SELECT c.id AS chunk_id, c.content AS content, d.title AS document_title,
-               d.scheme_name AS scheme_name, c.metadata AS metadata
+               d.scheme_name AS scheme_name, d.source AS source, c.metadata AS metadata
         FROM document_chunks c
         JOIN rag_documents d ON c.document_id = d.id
         WHERE ({where})
-        ORDER BY c.chunk_index ASC
+        ORDER BY {intent_rank} c.chunk_index ASC
         LIMIT :limit
         """
     )
@@ -903,6 +915,96 @@ def _scheme_text_retrieve(
             ",".join(needles[:3]),
         )
     return out
+
+
+def _scheme_intent_supplement(
+    db: Session,
+    query_text: str,
+    *,
+    scheme_hint: Optional[str] = None,
+    scheme_id_hint: Optional[str] = None,
+    exclude_chunk_ids: Optional[Set[str]] = None,
+    limit: int = 4,
+) -> List[Dict[str, Any]]:
+    """Fetch scheme-scoped chunks rich in eligibility/benefit language (indexed DB only)."""
+    from app.services.evidence_expansion import is_eligibility_focused_query
+    from app.services.myscheme_service import normalize_scheme_key, slug_hint_from_query
+
+    if not is_eligibility_focused_query(query_text or ""):
+        return []
+    if db.bind is None or db.bind.dialect.name != "postgresql":
+        return []
+
+    needles: List[str] = []
+    if scheme_id_hint:
+        needles.append(normalize_scheme_key(scheme_id_hint))
+    if scheme_hint:
+        needles.append(normalize_scheme_key(scheme_hint))
+    slug = slug_hint_from_query(query_text or "")
+    if slug:
+        needles.append(normalize_scheme_key(slug))
+    needles = [n for n in dict.fromkeys(needles) if n and len(n) >= 3]
+    if not needles:
+        return []
+
+    scheme_clauses = []
+    params: Dict[str, Any] = {"limit": int(limit)}
+    for i, n in enumerate(needles[:3]):
+        key = f"sn{i}"
+        params[key] = f"%{n.replace('-', '%')}%"
+        scheme_clauses.append(
+            f"(lower(coalesce(d.scheme_name,'')) LIKE :{key} "
+            f"OR lower(coalesce(d.title,'')) LIKE :{key})"
+        )
+    scheme_where = " OR ".join(scheme_clauses)
+    sql = text(
+        f"""
+        SELECT c.id AS chunk_id, c.content AS content, d.title AS document_title,
+               d.scheme_name AS scheme_name, d.source AS source, c.metadata AS metadata
+        FROM document_chunks c
+        JOIN rag_documents d ON c.document_id = d.id
+        WHERE ({scheme_where})
+          AND lower(coalesce(c.content,'')) ~ '(eligible|eligibility|benefit|criteria|who can apply|beneficiary|installment|assistance)'
+        ORDER BY
+          CASE WHEN lower(coalesce(d.source,'')) LIKE '%myscheme.gov.in/schemes/%' THEN 0 ELSE 1 END,
+          c.chunk_index ASC
+        LIMIT :limit
+        """
+    )
+    rows = db.execute(sql, params).fetchall()
+    exclude = exclude_chunk_ids or set()
+    out: List[Dict[str, Any]] = []
+    for r in rows:
+        cid = str(r.chunk_id)
+        if cid in exclude:
+            continue
+        out.append(
+            {
+                "chunk_id": cid,
+                "content": r.content,
+                "document_title": r.document_title,
+                "scheme_name": getattr(r, "scheme_name", None),
+                "source": getattr(r, "source", None),
+                "metadata": getattr(r, "metadata", None),
+                "similarity_score": 0.82,
+                "source_aligned": True,
+            }
+        )
+    if out:
+        logger.info("scheme_intent_supplement hits=%s scheme=%s", len(out), needles[0])
+    return out
+
+
+def _merge_retrieval_docs(primary: List[Dict[str, Any]], extra: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    seen = {str(d.get("chunk_id")) for d in primary if d.get("chunk_id")}
+    merged = list(primary)
+    for d in extra:
+        cid = str(d.get("chunk_id") or "")
+        if not cid or cid in seen:
+            continue
+        seen.add(cid)
+        merged.append(d)
+    return merged
 
 
 def retrieve_similar_chunks(
@@ -1177,17 +1279,49 @@ def answer_with_evidence_gate(
                 from app.services.myscheme_service import slug_hint_from_query as _slug
 
                 scheme_id_hint = scheme_id_hint or _slug(q)
+                st_limit = int(top_k or settings.HYBRID_TOP_K)
+                if is_cloud_runtime():
+                    st_limit = max(st_limit, 8)
                 docs = _scheme_text_retrieve(
                     db,
                     q,
                     scheme_hint=scheme_hint,
                     scheme_id_hint=scheme_id_hint,
-                    limit=int(top_k or settings.HYBRID_TOP_K),
+                    limit=st_limit,
                 )
                 if docs:
                     retrieval_path = "scheme_text"
             except Exception as exc:  # noqa: BLE001
                 logger.warning("scheme_text_retrieve failed: %s", type(exc).__name__)
+
+        if docs and retrieval_path.startswith(("scheme_text", "pgvector")):
+            sh = (
+                getattr(assistance_context, "detected_scheme", None)
+                if assistance_context is not None
+                else None
+            )
+            sid = (
+                getattr(assistance_context, "scheme_id", None)
+                if assistance_context is not None
+                else None
+            )
+            try:
+                from app.services.myscheme_service import slug_hint_from_query as _slug_hint
+
+                sid = sid or _slug_hint(q)
+                extra = _scheme_intent_supplement(
+                    db,
+                    q,
+                    scheme_hint=sh,
+                    scheme_id_hint=sid,
+                    exclude_chunk_ids={str(d.get("chunk_id")) for d in docs if d.get("chunk_id")},
+                    limit=4,
+                )
+                if extra:
+                    docs = _merge_retrieval_docs(docs, extra)
+                    retrieval_path = f"{retrieval_path}+intent"
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("scheme_intent_supplement failed: %s", type(exc).__name__)
 
         logger.info(
             "chat_retrieval path=%s hits=%s ms=%s err=%s",
@@ -1315,6 +1449,17 @@ def answer_with_evidence_gate(
         alt = v.validate(q, docs)
         if alt.ok:
             result = alt
+
+    cov_sig = (result.signals or {}).get("coverage") or {}
+    logger.info(
+        "evidence_validate ok=%s reason=%s docs_in=%s kept=%s coverage=%s missing_intent=%s",
+        result.ok,
+        result.reason,
+        len(docs),
+        (result.signals or {}).get("pruning", {}).get("kept"),
+        cov_sig.get("detail"),
+        cov_sig.get("missing_intent"),
+    )
 
     log_retrieval_diagnostics(
         ml_plan,

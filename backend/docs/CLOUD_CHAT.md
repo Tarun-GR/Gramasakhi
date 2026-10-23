@@ -32,6 +32,18 @@ CHAT_PIPELINE_BUDGET_SECONDS=0
 
 Optional: attach a **persistent disk** at `backend/indexes` and run `scripts/rebuild_hybrid_indexes.py` (or ingest pipeline) once so hybrid FAISS+BM25 is used.
 
+## PM-KISAN / RAG root cause (diagnosed)
+
+| Finding | Detail |
+|---------|--------|
+| **Chunks in Postgres** | ~2814 chunks, all with embeddings; ~8 PM-KISAN-related |
+| **pgvector on cloud** | **0 hits** when query embeddings use **Gemini** but stored vectors may predate provider switch (Ollama/nomic) — cosine scores below floor |
+| **scheme_text fallback** | Finds PM-KISAN PDF chunks but many lack **eligibility/benefits** vocabulary → validator **`insufficient_coverage`** (intent terms missing) |
+| **Fix in code** | Intent-ranked `scheme_text`, **`scheme_intent_supplement`** (myScheme/eligibility-rich chunks), structured **`evidence_validate`** logs |
+| **Fix in ops** | Staged **`scripts/reembed_all_chunks.py`** so pgvector matches Gemini (backup → embed → validate → apply) |
+
+Run read-only checks: `scripts/diagnose_rag_kb.py`, `scripts/trace_pm_kisan_rag.py` (with prod `DATABASE_URL` locally).
+
 ## Do not use on Render
 
 - `OLLAMA_*` for LLM/embeddings (laptop Ollama is not reachable)
